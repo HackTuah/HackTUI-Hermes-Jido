@@ -11,11 +11,11 @@
 
 ##  Project Overview
 
-HackTUI is a **Stateful Network Detection & Response (NDR)** platform
-built on the Elixir/OTP runtime.\
-It transforms raw system telemetry into actionable security intelligence
-using a modular, fault-tolerant architecture designed for
-high-throughput environments.
+HackTUI is a unified **SIEM (Security Information & Event Management)** and 
+**NDR (Network Detection & Response)** platform built on the Elixir/OTP runtime. 
+By combining real-time packet inspection (NDR) with persistent forensic 
+storage and correlation (SIEM), it transforms raw system telemetry into 
+actionable security intelligence.
 
 ------------------------------------------------------------------------
 
@@ -30,23 +30,20 @@ enrichment.*
 
 ##  Advanced SIEM Features
 
--   **Stateful Correlation Engine**\
-    Tracks behavioral patterns over time. Automatically escalates
-    repetitive suspicious lookups from standard warnings to **CRITICAL**
-    alerts.
+* **Stateful Correlation Engine**
+    [cite_start]Tracks behavioral patterns over time[cite: 5, 13]. [cite_start]It automatically escalates repetitive suspicious lookups from standard warnings to **CRITICAL** alerts to highlight potential malware beaconing[cite: 11].
 
--   **Asynchronous Threat Enrichment**\
-    Dedicated enrichment worker performing non-blocking DNS resolution
-    and GeoIP lookups (Country, ISP) for flagged domains.
+* **Asynchronous Threat Enrichment**
+    [cite_start]Leverages a dedicated enrichment worker to perform non-blocking DNS resolution and GeoIP lookups (Country, ISP) for flagged domains without interrupting packet ingestion[cite: 10].
 
--   **Persistent Historical Storage**\
-    Integrated with **PostgreSQL** via Ecto. All security events are
-    serialized to a permanent data store for forensic analysis and
-    historical reporting.
+* **Persistent Historical Storage**
+    [cite_start]Integrated with **PostgreSQL** via Ecto[cite: 6]. [cite_start]All security events are serialized to a permanent data store, allowing for deep forensic analysis and historical trend reporting[cite: 6, 14].
 
--   **Fault-Tolerant Design**\
-    Built on the Erlang/OTP supervision tree. Failures in one component
-    do not compromise the entire SOC.
+* **Fault-Tolerant Design**
+    [cite_start]Built on the Erlang/OTP supervision tree[cite: 5, 13]. Individual components are isolated; a failure in one component does not compromise the stability of the entire SOC.
+
+* **Historical Forensic Search**
+    [cite_start]Interactive search mode (press **[s]**) allows investigators to query the PostgreSQL backend for specific domains or alert patterns[cite: 14, 15]. [cite_start]This instantly retrieves historical telemetry from the database for deep incident correlation[cite: 16].
 
 ------------------------------------------------------------------------
 
@@ -119,9 +116,10 @@ mix run --no-halt
 
   Key   Action
   ----- ---------------------------------------
-  Q     Graceful Shutdown
-  C     Clear In-Memory Alerts
-  H     Fetch Historical Alerts from Database
+  q     Graceful Shutdown
+  c     Clear In-Memory Alerts
+  h     Fetch Historical Alerts from Database
+  s     Search 
 
 ------------------------------------------------------------------------
 

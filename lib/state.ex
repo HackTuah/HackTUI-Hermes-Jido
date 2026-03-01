@@ -3,22 +3,28 @@ defmodule Hacktui.State do
 
   # --- Client API ---
 
-  # 1. Added threat_counts to the initial state memory
+  # 1. Added input_mode and search_query to the state
   def start_link(_), do: 
-    GenServer.start_link(__MODULE__, %{alerts: [], logs: [], domains: MapSet.new(), threat_counts: %{}}, name: __MODULE__)
+    GenServer.start_link(__MODULE__, %{
+      alerts: [], 
+      logs: [], 
+      domains: MapSet.new(), 
+      threat_counts: %{},
+      input_mode: false,
+      search_query: ""
+    }, name: __MODULE__)
 
   def get_state, do: GenServer.call(__MODULE__, :get_state)
-
   def add_alert(type, message), do: GenServer.cast(__MODULE__, {:add_alert, %{type: type, message: message}})
-
   def add_log(entry), do: GenServer.cast(__MODULE__, {:add_log, entry})
-
   def track_domain(domain), do: GenServer.cast(__MODULE__, {:track_domain, domain})
-
   def clear_alerts, do: GenServer.cast(__MODULE__, :clear_alerts)
-
-  # 2. NEW: The Pattern Recognition API
   def track_suspicious(domain), do: GenServer.cast(__MODULE__, {:track_suspicious, domain})
+
+  # 2. NEW: Input Mode API
+  def toggle_input_mode, do: GenServer.cast(__MODULE__, :toggle_input)
+  def update_search_query(char), do: GenServer.cast(__MODULE__, {:update_search, char})
+  def clear_search_query, do: GenServer.cast(__MODULE__, :clear_search)
 
   # --- Server Callbacks ---
 
@@ -30,7 +36,6 @@ defmodule Hacktui.State do
 
   @impl true
   def handle_cast({:add_alert, alert}, state) do
-    # Save to PostgreSQL
     %Hacktui.Schema.Alert{}
     |> Hacktui.Schema.Alert.changeset(alert)
     |> Hacktui.Repo.insert()
@@ -53,29 +58,40 @@ defmodule Hacktui.State do
     {:noreply, %{state | alerts: []}}
   end
 
-  # 3. NEW: The Correlation Engine Logic
   @impl true
   def handle_cast({:track_suspicious, domain}, state) do
-    # Increment the counter for this specific domain
     count = Map.get(state.threat_counts, domain, 0) + 1
     new_counts = Map.put(state.threat_counts, domain, count)
 
     cond do
       count == 1 ->
-        # First offense: Standard alert and trigger background investigation
         Hacktui.State.add_alert("SUSPICIOUS DNS", "Initial lookup: #{domain}")
         Hacktui.Workers.Enricher.investigate(domain)
         
       count == 5 ->
-        # Fifth offense: Escalate to a CRITICAL alert (Malware beaconing behavior)
         Hacktui.State.add_alert("CRITICAL BEACONING", "High frequency lookups (5+) to: #{domain}")
         Hacktui.State.add_log("[🚨 CRITICAL] Escalated threat level for #{domain} due to repetitive beaconing!")
 
       true ->
-        # Do nothing on counts 2, 3, 4, 6, etc. to prevent alert fatigue!
         :ok
     end
 
     {:noreply, %{state | threat_counts: new_counts}}
+  end
+
+  # 3. NEW: Input Mode Callbacks
+  @impl true
+  def handle_cast(:toggle_input, state) do
+    {:noreply, %{state | input_mode: !state.input_mode}}
+  end
+
+  @impl true
+  def handle_cast({:update_search, char}, state) do
+    {:noreply, %{state | search_query: state.search_query <> char}}
+  end
+
+  @impl true
+  def handle_cast(:clear_search, state) do
+    {:noreply, %{state | search_query: "", input_mode: false}}
   end
 end
