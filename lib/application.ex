@@ -3,7 +3,9 @@ defmodule Hacktui.Application do
 
   def start(_type, _args) do
     children = [
+      Hacktui.Repo,
       Hacktui.State,
+      Hacktui.Workers.Enricher,
       Hacktui.Workers.LogSentinel,
       Hacktui.Workers.NetScout,
       Hacktui.UI.Dashboard

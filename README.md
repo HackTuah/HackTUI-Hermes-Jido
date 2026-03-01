@@ -1,4 +1,4 @@
-#  HackTUI
+# HackTUI 
 
     ██╗  ██╗ █████╗  ██████╗██╗  ██╗ ████████╗██╗   ██╗██╗
     ██║  ██║██╔══██╗██╔════╝██║ ██╔╝ ╚══██╔══╝██║   ██║██║
@@ -11,54 +11,65 @@
 
 ##  Project Overview
 
-HackTUI is an Elixir-native Security Operations Center (SOC) dashboard.\
-It provides real-time visibility into system-level events and network
-traffic by leveraging the BEAM's concurrency model to stream data from
-low-level system tools into a centralized terminal interface.
+HackTUI is a **Stateful Network Detection & Response (NDR)** platform
+built on the Elixir/OTP runtime.\
+It transforms raw system telemetry into actionable security intelligence
+using a modular, fault-tolerant architecture designed for
+high-throughput environments.
 
 ------------------------------------------------------------------------
 
-##  Core Features
+##  Dashboard Preview
 
--   **Real-time DNS Monitoring**\
-    Captures outbound DNS queries using `tcpdump` to identify potential
-    data exfiltration or beaconing to suspicious TLDs.
+![HackTUI Security Interface](assets/images/UI.png)
 
--   **System Journal Streaming**\
-    Integrates directly with `journalctl` to provide a live feed of
-    authentication attempts, sudo usage, and kernel events.
+*Figure 1: Real-time correlation of DNS beaconing events and GeoIP
+enrichment.*
 
--   **Automated Threat Detection**\
-    Heuristic-based alerting system that flags suspicious network
-    destinations and system permission failures in real-time.
+------------------------------------------------------------------------
 
--   **Reactive UI Architecture**\
-    Built on ExRatatui, featuring a multi-pane layout with color-coded
-    severity levels for rapid incident response.
+##  Advanced SIEM Features
+
+-   **Stateful Correlation Engine**\
+    Tracks behavioral patterns over time. Automatically escalates
+    repetitive suspicious lookups from standard warnings to **CRITICAL**
+    alerts.
+
+-   **Asynchronous Threat Enrichment**\
+    Dedicated enrichment worker performing non-blocking DNS resolution
+    and GeoIP lookups (Country, ISP) for flagged domains.
+
+-   **Persistent Historical Storage**\
+    Integrated with **PostgreSQL** via Ecto. All security events are
+    serialized to a permanent data store for forensic analysis and
+    historical reporting.
+
+-   **Fault-Tolerant Design**\
+    Built on the Erlang/OTP supervision tree. Failures in one component
+    do not compromise the entire SOC.
 
 ------------------------------------------------------------------------
 
 ##  Architecture
 
-The system operates as a supervised tree of specialized GenServers:
+The system operates as a supervised tree of specialized concurrent
+processes:
 
--   **NetScout** -- Manages a Port-based interface to `tcpdump` for
-    network packet inspection.
--   **LogSentinel** -- Streams systemd journal entries into the
-    application state.
--   **State** -- A centralized GenServer acting as the single source of
-    truth for the UI.
--   **Dashboard** -- The rendering engine that transforms application
-    state into the terminal layout.
+-   **NetScout** -- Ingestion layer managing raw packet capture via
+    `tcpdump`.
+-   **Enricher** -- Intelligence layer providing GeoIP and Threat Intel
+    metadata.
+-   **Repo** -- Persistence layer managing the PostgreSQL interface.
+-   **State** -- Correlation engine and single source of truth.
+-   **Dashboard** -- Terminal rendering engine built on `ExRatatui`.
 
 ------------------------------------------------------------------------
 
-## ⚙ Installation and Setup
+##  Installation & Setup
 
 ### 1️⃣ System Dependencies
 
-The monitoring agents require specific Linux capabilities to run without
-root privileges:
+Monitoring agents require specific Linux capabilities:
 
 ``` bash
 # Grant network sniffing permissions
@@ -70,56 +81,59 @@ sudo setcap 'cap_net_raw,cap_net_admin=eip' $(which tcpdump)
 sudo usermod -a -G systemd-journal $USER
 ```
 
-After running the above command, log out and back in for group changes
-to apply.
+Log out and back in after modifying group permissions.
 
 ------------------------------------------------------------------------
 
-### 2️⃣ Application Setup
+### 2️⃣ Environment Configuration
+
+Create a `.env` file in the project root:
 
 ``` bash
-# Clone the repository
-git clone https://github.com/HackTuah/HackTUI.git
+# .env
+export HACKTUI_DB_PASS="your_secure_30_character_password"
 ```
 
-``` bash
-cd HackTUI
-```
+------------------------------------------------------------------------
+
+### 3️⃣ Database Initialization
 
 ``` bash
-# Compile the project
-mix compile
+source .env
+mix deps.get
+mix ecto.setup
 ```
 
 ------------------------------------------------------------------------
 
 ## ▶ Usage
 
-Run the dashboard:
-
 ``` bash
+source .env
 mix run --no-halt
 ```
 
 ------------------------------------------------------------------------
 
-## 🎛 Controls
+## 🎛️ Controls
 
   Key   Action
-  ----- ---------------------
+  ----- ---------------------------------------
   Q     Graceful Shutdown
-  C     Clear Active Alerts
+  C     Clear In-Memory Alerts
+  H     Fetch Historical Alerts from Database
 
 ------------------------------------------------------------------------
 
-## 🛠 Development
+##  Tech Stack
 
--   **Language:** Elixir 1.19.5\
--   **Runtime:** OTP 28.1\
--   **TUI Framework:** ExRatatui 0.4.1
+-   **Language:** Elixir 1.19+ (OTP 28)
+-   **Database:** PostgreSQL 16+ (Ecto)
+-   **Networking:** Req (HTTP), Port-based TCPDump
+-   **TUI:** ExRatatui 0.4.1
 
 ------------------------------------------------------------------------
 
-## 📜 License
+##  License
 
 MIT License

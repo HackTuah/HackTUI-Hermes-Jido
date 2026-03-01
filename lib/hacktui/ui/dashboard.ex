@@ -1,5 +1,6 @@
 defmodule Hacktui.UI.Dashboard do
   use ExRatatui.App
+  import Ecto.Query
 
   alias ExRatatui.Widgets.{Paragraph, Block}
   alias ExRatatui.Layout
@@ -14,14 +15,36 @@ defmodule Hacktui.UI.Dashboard do
 
   @impl true
   def handle_event(event, state) do
+    event_str = inspect(event)
+
     cond do
-      inspect(event) =~ "q" ->
+      # Looking for exact quoted letters so it doesn't match words like "ctrl" or "ch"
+      event_str =~ "\"q\"" ->
         System.halt(0)
         {:stop, state}
-      inspect(event) =~ "c" ->
-        # Calls the clear_alerts function in your State GenServer
+
+      event_str =~ "\"c\"" ->
         Hacktui.State.clear_alerts()
         {:noreply, state}
+
+      event_str =~ "\"h\"" ->
+        try do
+          query = from(a in Hacktui.Schema.Alert, order_by: [desc: a.inserted_at], limit: 20)
+          history = Hacktui.Repo.all(query)
+          
+          if history == [] do
+             Hacktui.State.add_log("[DB_HISTORY] No alerts found in database.")
+          else
+            Enum.each(history, fn a -> 
+              msg = "[DB_HISTORY] #{a.inserted_at} | #{a.type}: #{a.message}"
+              Hacktui.State.add_log(msg)
+            end)
+          end
+        rescue
+          e -> Hacktui.State.add_log("[!] Database query failed: #{inspect(e)}")
+        end
+        {:noreply, state}
+
       true ->
         {:noreply, state}
     end
@@ -33,10 +56,8 @@ defmodule Hacktui.UI.Dashboard do
   @impl true
   def render(_state, frame) do
     backend = Hacktui.State.get_state()
-    # Convert Frame to Rect for stable 0.4.1 layout splitting
     area = %Rect{x: 0, y: 0, width: frame.width, height: frame.height}
 
-    # Split: Top Bar (3), Main (60%), Bottom (Remaining)
     [top_r, main_r, bot_r] = Layout.split(area, :vertical, [
       {:length, 3}, {:percentage, 60}, {:min, 0}
     ])
@@ -45,15 +66,13 @@ defmodule Hacktui.UI.Dashboard do
       {:percentage, 50}, {:percentage, 50}
     ])
 
-    # 1. Top Bar (With Unique Domains counter)
-    status_text = " 🛡️ HACKTUI | Alerts: #{length(backend.alerts)} | Logs: #{length(backend.logs)} | Unique Domains: #{MapSet.size(backend.domains)} | [q] Quit | [c] Clear"
+    status_text = " 🛡️ HACKTUI | Alerts: #{length(backend.alerts)} | Logs: #{length(backend.logs)} | [q] Quit | [c] Clear | [h] History"
     top_bar = %Paragraph{
       text: status_text,
       style: %Style{fg: :cyan},
       block: %Block{borders: [:all], title: " System Status ", border_style: %Style{fg: :blue}}
     }
 
-    # 2. Alerts (Red)
     alerts_content = if backend.alerts == [], do: "Watching for DNS anomalies...", else: 
       backend.alerts |> Enum.map(&"[!] #{&1.message}") |> Enum.join("\n")
 
@@ -63,7 +82,6 @@ defmodule Hacktui.UI.Dashboard do
       block: %Block{borders: [:all], title: " 🔥 ALERTS ", border_style: %Style{fg: :red}}
     }
 
-    # 3. Logs (Cyan)
     logs_content = if backend.logs == [], do: "Waiting for system events...", else: 
       backend.logs |> Enum.reverse() |> Enum.join("\n")
     
@@ -73,7 +91,6 @@ defmodule Hacktui.UI.Dashboard do
       block: %Block{borders: [:all], title: " 📋 SYSTEM LOGS ", border_style: %Style{fg: :blue}}
     }
 
-    # 4. Network Map (Green)
     domains = backend.domains |> MapSet.to_list() |> Enum.join("  •  ")
     network_map = %Paragraph{
       text: if(domains == "", do: "No traffic detected yet...", else: domains),
