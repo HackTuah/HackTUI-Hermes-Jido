@@ -5,23 +5,29 @@ defmodule Hacktui.MixProject do
     [
       app: :hacktui,
       version: "0.1.0",
-      elixir: "~> 1.19",
+      elixir: "~> 1.19", 
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: deps(),
+      releases: [
+        hacktui: [include_sbom: true] 
+      ]
     ]
   end
 
   def application do
     [
-      mod: {HackTUI.Application, []},
-      extra_applications: [:logger]
+      # :crypto is added here to support OTP 28's newer cryptography features
+      extra_applications: [:logger, :crypto],
+      mod: {Hacktui.Application, []} 
     ]
   end
 
   defp deps do
     [
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
+      {:ex_ratatui, "~> 0.4.1"},    
+      {:pcap_file_ex, "~> 0.5.7"},  
+      {:file_system, "~> 1.0"},     
+      {:jason, "~> 1.4"}            
     ]
   end
 end

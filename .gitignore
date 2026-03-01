@@ -22,18 +22,3 @@ erl_crash.dump
 # Ignore package tarball (built via "mix hex.build").
 hacktui-*.tar
 
-cat > .gitignore <<'EOF'
-# Elixir / Mix / Build artifacts
-/_build/
- /deps/
- /cover/
- /doc/
- /.elixir_ls/
- erl_crash.dump
- *.ez
- *.beam
-
-# OS / Editor cruft
-.DS_Store
-*.swp
-EOF
