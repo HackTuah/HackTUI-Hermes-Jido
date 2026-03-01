@@ -1,21 +1,61 @@
-# Hacktui
+# 🌌 HackTUI
 
-**TODO: Add description**
+██╗  ██╗ █████╗  ██████╗██╗  ██╗ ████████╗██╗   ██╗██╗
+██║  ██║██╔══██╗██╔════╝██║ ██╔╝ ╚══██╔══╝██║   ██║██║
+███████║███████║██║     █████╔╝     ██║   ██║   ██║██║
+██╔══██║██╔══██║██║     ██╔═██╗     ██║   ██║   ██║██║
+██║  ██║██║  ██║╚██████╗██║  ██╗    ██║   ╚██████╔╝██║
+╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝    ╚═╝    ╚═════╝ ╚═╝
 
-## Installation
+## Project Overview
+HackTUI is an Elixir-native Security Operations Center (SOC) dashboard. It provides real-time visibility into system-level events and network traffic by leveraging the BEAM's concurrency model to stream data from low-level system tools into a centralized terminal interface.
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `hacktui` to your list of dependencies in `mix.exs`:
+## Core Features
+- Real-time DNS Monitoring: Captures outbound DNS queries using tcpdump to identify potential data exfiltration or beaconing to suspicious TLDs.
+- System Journal Streaming: Integrates directly with journalctl to provide a live feed of authentication attempts, sudo usage, and kernel events.
+- Automated Threat Detection: Heuristic-based alerting system that flags suspicious network destinations and system permission failures in real-time.
+- Reactive UI Architecture: Built on ExRatatui, featuring a multi-pane layout with color-coded severity levels for rapid incident response.
 
-```elixir
-def deps do
-  [
-    {:hacktui, "~> 0.1.0"}
-  ]
-end
-```
+## Architecture
+The system operates as a supervised tree of specialized GenServers:
+- NetScout: Manages a Port-based interface to tcpdump for network packet inspection.
+- LogSentinel: Streams systemd journal entries into the application state.
+- State: A centralized GenServer acting as the single source of truth for the UI.
+- Dashboard: The rendering engine that transforms application state into the terminal layout.
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/hacktui>.
+## Installation and Setup
+### System Dependencies
+The monitoring agents require specific Linux capabilities to run without root privileges:
+```bash
+# Grant network sniffing permissions
+sudo setcap 'cap_net_raw,cap_net_admin=eip' $(which tcpdump)
+
+# Grant journal access
+sudo usermod -a -G systemd-journal $USER
+
+## Application Setup
+```bash
+# Clone and compile
+git clone [https://github.com/HackTuah/HackTUI.git](https://github.com/HackTuah/HackTUI.git)
+cd HackTUI
+mix compile
+
+## Usage
+Run the dashboard:
+```bash
+mix run --no-halt
+
+### Controls
+| Key | Action |
+|-----|--------|
+| Q | Graceful Shutdown |
+| C | Clear Active Alerts |
+
+## Development
+- Language: Elixir 1.19.5
+- Runtime: OTP 28.1
+- TUI Framework: ExRatatui 0.4.1
+
+## License
+MIT License
 

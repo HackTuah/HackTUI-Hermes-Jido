@@ -14,7 +14,17 @@ defmodule Hacktui.UI.Dashboard do
 
   @impl true
   def handle_event(event, state) do
-    if inspect(event) =~ "q", do: System.halt(0), else: {:noreply, state}
+    cond do
+      inspect(event) =~ "q" ->
+        System.halt(0)
+        {:stop, state}
+      inspect(event) =~ "c" ->
+        # Calls the clear_alerts function in your State GenServer
+        Hacktui.State.clear_alerts()
+        {:noreply, state}
+      true ->
+        {:noreply, state}
+    end
   end
 
   @impl true
@@ -35,8 +45,8 @@ defmodule Hacktui.UI.Dashboard do
       {:percentage, 50}, {:percentage, 50}
     ])
 
-    # 1. Top Bar (With the Unique Domains counter restored!)
-    status_text = " 🛡️ HACKTUI | Alerts: #{length(backend.alerts)} | Logs: #{length(backend.logs)} | Unique Domains: #{MapSet.size(backend.domains)} | [q] Quit"
+    # 1. Top Bar (With Unique Domains counter)
+    status_text = " 🛡️ HACKTUI | Alerts: #{length(backend.alerts)} | Logs: #{length(backend.logs)} | Unique Domains: #{MapSet.size(backend.domains)} | [q] Quit | [c] Clear"
     top_bar = %Paragraph{
       text: status_text,
       style: %Style{fg: :cyan},
@@ -54,7 +64,6 @@ defmodule Hacktui.UI.Dashboard do
     }
 
     # 3. Logs (Cyan)
-    # Pro Tip: Enum.reverse(backend.logs) ensures the NEWEST logs are at the top!
     logs_content = if backend.logs == [], do: "Waiting for system events...", else: 
       backend.logs |> Enum.reverse() |> Enum.join("\n")
     
