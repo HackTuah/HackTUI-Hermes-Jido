@@ -27,7 +27,6 @@ defmodule Hacktui.UI.Dashboard do
       # 1. Logic for when we are TYPING
       backend.input_mode ->
         cond do
-          # Match "Enter" or "Esc" in any format (quoted or raw)
           String.contains?(String.downcase(event_str), ["enter", "return"]) ->
             execute_search(backend.search_query)
             Hacktui.State.clear_search_query()
@@ -38,8 +37,6 @@ defmodule Hacktui.UI.Dashboard do
             {:noreply, state}
 
           true ->
-            # Better Key Extraction: Look for the 'ch' pattern specifically
-            # Ratatui usually sends: {:key, %{code: {:ch, "a"}, ...}}
             case event do
               {:key, %{code: {:ch, char}}} -> 
                 Hacktui.State.update_search_query(char)
@@ -67,7 +64,6 @@ defmodule Hacktui.UI.Dashboard do
     end
   end
 
-  # Helper functions to keep handle_event clean
   defp execute_search(query_str) do
     query = from a in Hacktui.Schema.Alert, 
               where: ilike(a.message, ^"%#{query_str}%"), 
@@ -100,6 +96,8 @@ defmodule Hacktui.UI.Dashboard do
     backend = Hacktui.State.get_state()
     area = %Rect{x: 0, y: 0, width: frame.width, height: frame.height}
 
+    unique_count = MapSet.size(backend.domains)
+
     [top_r, main_r, bot_r] = Layout.split(area, :vertical, [
       {:length, 3}, {:percentage, 60}, {:min, 0}
     ])
@@ -108,7 +106,8 @@ defmodule Hacktui.UI.Dashboard do
       {:percentage, 50}, {:percentage, 50}
     ])
 
-    status_text = " 🛡️ HACKTUI | Alerts: #{length(backend.alerts)} | Logs: #{length(backend.logs)} | [q] Quit | [c] Clear | [h] History | [s] Search"
+    status_text = " 🛡️ HACKTUI | Alerts: #{length(backend.alerts)} | Logs: #{length(backend.logs)} | Domains: #{unique_count} | [q] Quit | [c] Clear | [h] History | [s] Search"
+    
     top_bar = %Paragraph{
       text: status_text,
       style: %Style{fg: :cyan},
@@ -133,7 +132,6 @@ defmodule Hacktui.UI.Dashboard do
       block: %Block{borders: [:all], title: " 📋 SYSTEM LOGS ", border_style: %Style{fg: :blue}}
     }
 
-    # 3. Dynamic Bottom Panel: Toggles between Map and Search
     bottom_panel = if backend.input_mode do
       %Paragraph{
         text: " QUERY: #{backend.search_query}_",
@@ -141,14 +139,34 @@ defmodule Hacktui.UI.Dashboard do
         block: %Block{borders: [:all], title: " 🔍 SEARCH DATABASE (Press Enter to submit, Esc to cancel) ", border_style: %Style{fg: :yellow}}
       }
     else
-      domains = backend.domains |> MapSet.to_list() |> Enum.join("  •  ")
+      # PRO MAP WITH RISK INDICATORS
+      intel_lines = Enum.map(backend.intel_map, fn {domain, data} ->
+        risk = get_risk_indicator(domain, data.isp)
+        "#{risk} | #{String.pad_trailing(domain, 25)} | #{String.pad_trailing(data.ip, 15)} | #{data.country} (#{data.isp})"
+      end)
+
+      content = if intel_lines == [], 
+        do: "Waiting for suspicious traffic to enrich...", 
+        else: Enum.join(intel_lines, "\n")
+
       %Paragraph{
-        text: if(domains == "", do: "No traffic detected yet...", else: domains),
+        text: content,
         style: %Style{fg: :green},
-        block: %Block{borders: [:all], title: " 🌐 NETWORK MAP ", border_style: %Style{fg: :green}}
+        block: %Block{borders: [:all], title: " 🌐 THREAT INTELLIGENCE MAP ", border_style: %Style{fg: :green}}
       }
     end
 
     [{top_bar, top_r}, {left_panel, left_r}, {right_panel, right_r}, {bottom_panel, bot_r}]
+  end
+
+  defp get_risk_indicator(domain, isp) do
+    safe_isp = isp || ""
+    cond do
+      safe_isp == "UNRESOLVED/NXDOMAIN" -> "🔴 [DEAD]     "
+      domain in ["abc.xyz", "safety.google.xyz"] -> "🟢 [TRUSTED]  "
+      String.ends_with?(domain, ".xyz") and String.contains?(safe_isp, "Amazon") -> "🟡 [ANOMALY]  "
+      String.ends_with?(domain, [".xyz", ".cloud", ".zip"]) -> "🔴 [CRITICAL] "
+      true -> "🟡 [UNKNOWN]  "
+    end
   end
 end

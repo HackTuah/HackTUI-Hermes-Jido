@@ -5,7 +5,7 @@ defmodule Hacktui.Workers.NetScout do
 
   def init(_) do
     executable = System.find_executable("tcpdump")
-    # Capturing raw UDP port 53 traffic for DNS anomalies
+    
     port = Port.open({:spawn_executable, executable}, [
       :binary, :stream, :line, :stderr_to_stdout,
       args: ["-l", "-n", "-i", "any", "udp", "port", "53"]
@@ -32,10 +32,8 @@ defmodule Hacktui.Workers.NetScout do
     {:noreply, state}
   end
 
-  # Grouped handle_info clauses together
   def handle_info(_, state), do: {:noreply, state}
 
-  # Private helper function at the bottom
   defp process_dns(domain) do
     if String.ends_with?(domain, [".xyz", ".top", ".tk", ".cloud", ".zip"]) do
       

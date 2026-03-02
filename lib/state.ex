@@ -3,13 +3,13 @@ defmodule Hacktui.State do
 
   # --- Client API ---
 
-  # 1. Added input_mode and search_query to the state
   def start_link(_), do: 
     GenServer.start_link(__MODULE__, %{
       alerts: [], 
       logs: [], 
       domains: MapSet.new(), 
       threat_counts: %{},
+      intel_map: %{},           # NEW: Stores the Threat Intel map
       input_mode: false,
       search_query: ""
     }, name: __MODULE__)
@@ -21,7 +21,10 @@ defmodule Hacktui.State do
   def clear_alerts, do: GenServer.cast(__MODULE__, :clear_alerts)
   def track_suspicious(domain), do: GenServer.cast(__MODULE__, {:track_suspicious, domain})
 
-  # 2. NEW: Input Mode API
+  # NEW: Intel API
+  def add_intel(domain, data), do: GenServer.cast(__MODULE__, {:add_intel, domain, data})
+
+  # Input Mode API
   def toggle_input_mode, do: GenServer.cast(__MODULE__, :toggle_input)
   def update_search_query(char), do: GenServer.cast(__MODULE__, {:update_search, char})
   def clear_search_query, do: GenServer.cast(__MODULE__, :clear_search)
@@ -79,7 +82,14 @@ defmodule Hacktui.State do
     {:noreply, %{state | threat_counts: new_counts}}
   end
 
-  # 3. NEW: Input Mode Callbacks
+  # NEW: Intel Callback
+  @impl true
+  def handle_cast({:add_intel, domain, data}, state) do
+    new_intel = Map.put(state.intel_map, domain, data)
+    {:noreply, %{state | intel_map: new_intel}}
+  end
+
+  # Input Mode Callbacks
   @impl true
   def handle_cast(:toggle_input, state) do
     {:noreply, %{state | input_mode: !state.input_mode}}
