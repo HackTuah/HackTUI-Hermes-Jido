@@ -6,6 +6,7 @@ defmodule HacktuiHub.Replay.Runner do
   alias HacktuiCore.Observation.Envelope
   alias HacktuiHub.DetectionService
   alias HacktuiHub.IngestService
+  alias HacktuiHub.PurpleService
   alias HacktuiHub.Replay.Loader
 
   @spec run_fixture!(Path.t(), keyword()) :: [term()]
@@ -34,6 +35,14 @@ defmodule HacktuiHub.Replay.Runner do
   @spec derive_alerts!([ObservationAccepted.t()], keyword()) :: [term()]
   def derive_alerts!(accepted_observations, opts \\ []) when is_list(accepted_observations) do
     Enum.map(accepted_observations, &derive_alert!(&1, opts))
+  end
+
+  @spec derive_exercises!([ObservationAccepted.t()]) :: [term()]
+  def derive_exercises!(accepted_observations) when is_list(accepted_observations) do
+    Enum.map(accepted_observations, fn accepted ->
+      {:ok, exercise} = PurpleService.derive_exercise(accepted)
+      exercise
+    end)
   end
 
   defp accept_envelope!(%Envelope{} = envelope, opts) do
