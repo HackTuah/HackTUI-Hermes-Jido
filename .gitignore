@@ -24,6 +24,39 @@ hacktui-*.tar
 
 # Keep database passwords and secrets local
 .env
+.env.*
+!.env.example
+
+# Local agent/session artifacts
+.hermes_logs/
+hermes_conversation_*.json
+tmp_hacktui_mcp_probe.py
 
 # Keep generated system and error logs local
 /logs/
+
+# Local runtime configs
+config/runtime.secret.exs
+config/*.local.exs
+
+# SQLite / local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+
+# Direnv
+.envrc
+
+# MCP / tool experiment scripts
+*.probe.py
+
+# Test recordings
+recordings/

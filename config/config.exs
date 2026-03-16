@@ -1,24 +1,45 @@
 import Config
 
-# 1. Tell Elixir which Repo belongs to this app
-config :hacktui, ecto_repos: [Hacktui.Repo]
+if System.get_env("HACKTUI_MCP_STDIO") in ["1", "true"] do
+  config :logger, level: :warning
+  config :logger, :default_handler, false
+else
+  config :logger, level: :info
+end
 
-# 2. Configure the database connection using your secure environment variable
-config :hacktui, Hacktui.Repo,
-  username: "hacktui",
-  password: System.get_env("HACKTUI_DB_PASS"),
-  hostname: "localhost",
-  database: "hacktui_dev"
+config :tzdata, :autoupdate, :disabled
 
-# 3. CRITICAL UI FIX: Stop debug logs from printing over the TUI
-# This removes the purple [debug] SQL text from your screen.
-config :logger, :console,
-  level: :info
+config :hacktui_hub,
+  primary_interface: :tui,
+  architecture_doc: "ARCHITECTURE.md"
 
-# 4. Redirect all background logs to a file for Blue Team analysis
-config :logger,
-  backends: [{LoggerFileBackend, :error_log}]
+config :hacktui_sensor,
+  forwarding_mode: :hub
 
-config :logger, :error_log,
-  path: "logs/error.log",
-  level: :debug
+config :hacktui_collab,
+  enabled_providers: [],
+  supported_providers: [:slack]
+
+config :hacktui_agent,
+  enabled_backends: [],
+  supported_roles: [:triage, :investigation, :reporting, :runbook]
+
+config :hacktui_agent, HacktuiAgent.Jido,
+  max_tasks: 100,
+  agent_pools: []
+
+config :hacktui_store,
+  ecto_repos: [HacktuiStore.Repo],
+  start_repo: false
+
+config :hacktui_store, HacktuiStore.Repo,
+  username: System.get_env("HACKTUI_DB_USER", "hacktui"),
+  password: System.get_env("HACKTUI_DB_PASS", "postgres"),
+  hostname: System.get_env("HACKTUI_DB_HOST", "localhost"),
+  port: String.to_integer(System.get_env("HACKTUI_DB_PORT", "5432")),
+  database: System.get_env("HACKTUI_DB_NAME", "hacktui_qualification_test"),
+  stacktrace: true,
+  show_sensitive_data_on_connection_error: false,
+  pool_size: 5
+
+import_config "#{config_env()}.exs"

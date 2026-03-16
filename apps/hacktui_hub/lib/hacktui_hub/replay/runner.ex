@@ -46,7 +46,20 @@ defmodule HacktuiHub.Replay.Runner do
   end
 
   defp accept_envelope!(%Envelope{} = envelope, opts) do
-    command = AcceptObservation.from_envelope(envelope)
+    command =
+      %{
+        observation_id:
+          metadata_value(envelope.metadata, :observation_id) || replay_observation_id(envelope),
+        source: envelope.source,
+        kind: envelope.kind,
+        payload: envelope.payload || %{},
+        metadata: envelope.metadata || %{},
+        actor: Map.get(envelope.metadata || %{}, :actor, "replay_runner"),
+        envelope_version: Map.get(envelope.metadata || %{}, :envelope_version, 1),
+        received_at: envelope.received_at
+      }
+      |> ensure_observation_contract(envelope)
+      |> then(&struct!(AcceptObservation, &1))
 
     command
     |> IngestService.accept_observation(acceptance_opts(envelope, opts))
@@ -56,6 +69,81 @@ defmodule HacktuiHub.Replay.Runner do
   defp accept_envelope!(other, _opts) do
     raise ArgumentError, "expected replay loader to return envelopes, got: #{inspect(other)}"
   end
+
+  defp ensure_observation_contract(command, %Envelope{} = envelope) when is_map(command) do
+    payload = command.payload || %{}
+    summary = payload_value(payload, :summary) || fallback_summary(envelope)
+    fingerprint =
+      payload_value(payload, :fingerprint) ||
+        metadata_value(envelope.metadata, :fingerprint) ||
+        command.observation_id
+    raw_message = payload_value(payload, :raw_message) || summary
+    severity = normalize_severity(payload_value(payload, :severity) || :low)
+    confidence = normalize_confidence(payload_value(payload, :confidence) || 0.6)
+
+    Map.merge(command, %{
+      summary: summary,
+      fingerprint: fingerprint,
+      raw_message: raw_message,
+      severity: severity,
+      confidence: confidence,
+      payload:
+        payload
+        |> Map.put_new(:summary, summary)
+        |> Map.put_new(:fingerprint, fingerprint)
+        |> Map.put_new(:raw_message, raw_message)
+        |> Map.put_new(:severity, severity)
+        |> Map.put_new(:confidence, confidence)
+    })
+  end
+
+  defp payload_value(payload, key) do
+    Map.get(payload, key) || Map.get(payload, Atom.to_string(key))
+  end
+
+  defp metadata_value(metadata, key) do
+    metadata = metadata || %{}
+    Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))
+  end
+
+  defp fallback_summary(%Envelope{} = envelope) do
+    payload = envelope.payload || %{}
+
+    payload_value(payload, :summary) ||
+      payload_value(payload, :message) ||
+      payload_value(payload, :raw_message) ||
+      envelope.kind ||
+      envelope.source ||
+      "replay observation"
+  end
+
+  defp normalize_severity(severity) when severity in [:low, :medium, :high, :critical], do: severity
+
+  defp normalize_severity(severity) when is_binary(severity) do
+    severity
+    |> String.downcase()
+    |> case do
+      "low" -> :low
+      "medium" -> :medium
+      "high" -> :high
+      "critical" -> :critical
+      _ -> :low
+    end
+  end
+
+  defp normalize_severity(_), do: :low
+
+  defp normalize_confidence(confidence) when is_float(confidence), do: confidence
+  defp normalize_confidence(confidence) when is_integer(confidence), do: confidence / 1
+
+  defp normalize_confidence(confidence) when is_binary(confidence) do
+    case Float.parse(confidence) do
+      {value, _} -> value
+      :error -> 0.6
+    end
+  end
+
+  defp normalize_confidence(_), do: 0.6
 
   defp unwrap_acceptance!({:ok, accepted}, _envelope), do: accepted
   defp unwrap_acceptance!(accepted, _envelope), do: accepted
@@ -96,6 +184,10 @@ defmodule HacktuiHub.Replay.Runner do
     sequence = envelope_sequence(envelope) || "unknown"
 
     "replay-#{envelope.source}-#{envelope.kind}-#{sequence}"
+  end
+
+  defp replay_observation_id(%Envelope{} = envelope) do
+    metadata_value(envelope.metadata, :event_id) || replay_event_id(envelope)
   end
 
   defp fixture_path(path) do

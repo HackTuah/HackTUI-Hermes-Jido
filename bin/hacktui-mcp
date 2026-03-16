@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export HACKTUI_MCP_STDIO=1
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+export MIX_ENV="${MIX_ENV:-dev}"
+export MIX_QUIET=1
+
+# Compile before starting stdio so any build output stays off the MCP transport.
+mix compile 1>&2
+
+exec mix run --no-compile -e 'Mix.Task.run("hacktui.mcp")'

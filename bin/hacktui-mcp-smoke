@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+LAUNCHER = ROOT / "bin" / "hacktui-mcp"
+
+request = {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2024-11-05",
+        "capabilities": {},
+        "clientInfo": {"name": "hacktui-mcp-smoke", "version": "0.1.0"}
+    }
+}
+
+if not LAUNCHER.exists():
+    print(f"launcher not found: {LAUNCHER}", file=sys.stderr)
+    sys.exit(1)
+
+proc = subprocess.Popen(
+    [str(LAUNCHER)],
+    cwd=str(ROOT),
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+)
+
+try:
+    proc.stdin.write(json.dumps(request) + "\n")
+    proc.stdin.flush()
+
+    response = None
+    for _ in range(50):
+        line = proc.stdout.readline()
+        if not line:
+            break
+
+        line = line.strip()
+        if not line:
+            continue
+
+        try:
+            candidate = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        if candidate.get("jsonrpc") == "2.0":
+            response = candidate
+            break
+
+    if response is None:
+        err = proc.stderr.read().strip()
+        print("no initialize response received", file=sys.stderr)
+        if err:
+            print(err, file=sys.stderr)
+        sys.exit(1)
+
+    result = response.get("result", {})
+    server = result.get("serverInfo", {})
+    print("MCP initialize ok")
+    print(f"protocolVersion={result.get('protocolVersion')}")
+    print(f"server={server.get('name')} version={server.get('version')}")
+finally:
+    try:
+        proc.terminate()
+        proc.wait(timeout=3)
+    except Exception:
+        proc.kill()
