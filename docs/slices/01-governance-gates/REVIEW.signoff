@@ -1,9 +1,9 @@
 slice: 01-governance-gates
-staged-diff-sha256: 23c6eaa9aafa8202eaf9e032c2a9b8082d4b33d9890e6f955cf0f67b9fbe2501
-scope: full slice diff, f0494af..HEAD (squash-merged to main as one commit)
-review-rounds: 3
-verdicts: FAIL, FAIL, FAIL
-reviewers: 5 independent read-only agents (2 + 2 + 1 fresh-context)
+staged-diff-sha256: d74fbf86f144e31051d30c66eb8af803aae145ce3faad733ab8751a3757c3992
+scope: follow-up commit applying round-4 review fixes to 563b26c
+review-rounds: 4
+verdicts: FAIL, FAIL, FAIL, FAIL
+reviewers: 6 independent read-only agents (2 + 2 + 1 + 1 fresh-context)
 
 What this record asserts:
   - Three independent review rounds were run. Every round returned FAIL and every
@@ -15,10 +15,12 @@ What this record asserts:
     is empty.
 
 What this record does NOT assert:
-  - That the round-3 fixes were reviewed. They were not. Committed under the
-    maintainer's explicit instruction to commit after round 3 either way.
+  - That the round-4 fixes were reviewed. They were not. Round 4 reviewed 563b26c
+    and its findings are fixed here; this follow-up is itself unreviewed.
+  - Round 4 found a round-3 fix that was itself a regression (mix setup). Unreviewed
+    fix batches have now broken something twice; slice 02 should budget a review pass.
   - That a review happened at all, in any cryptographic sense. This file is a
     record written by the implementer. Enforcing CLAUDE.md section 0 against a
     non-cooperating author needs a control outside this repository.
 
-next: slice 02 opens with a fresh-context review of this commit.
+next: slice 02 opens with a fresh-context review of this follow-up commit.

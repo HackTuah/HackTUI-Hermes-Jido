@@ -61,6 +61,14 @@ risk, recorded so it is a known limit rather than an unexamined assumption.
 - **Contributor docs never mention `mix setup`.** `README.md`, `CONTRIBUTING.md`, and
   `DEVELOPMENT.md` do not tell a contributor to install the hooks, so a fresh clone has
   no local enforcement.
+- **Merge, rebase and cherry-pick commits run no pre-commit gate.** Per `githooks(5)`,
+  `pre-commit` fires only for `git commit`; `commit-msg` additionally exits 0 whenever
+  `MERGE_HEAD`/`REVERT_HEAD`/`CHERRY_PICK_HEAD` exists. So `git merge --no-ff` lands a
+  tree on `main` with no local gate evaluation.
+- **The sign-off hash does not fully pin the diff.** `core.abbrev`, `--binary`,
+  `--no-ext-diff` and `--no-textconv` are now pinned, but `.gitattributes` `diff=` drivers
+  could still alter hunk text. Fails closed (a mismatch blocks), so this is a
+  reproducibility limit, not a bypass.
 - **The index-isolation rule forbids partial staging** (`git add -p`). Correct for
   measurement integrity, but a known driver of `--no-verify` habits; worth stating in
   CLAUDE.md as an intended cost.

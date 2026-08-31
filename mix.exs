@@ -38,7 +38,7 @@ defmodule HacktuiUmbrella.MixProject do
 
   defp aliases do
     [
-      setup: ["deps.get", "do --app hacktui_core git config core.hooksPath .githooks"],
+      setup: ["deps.get", "cmd --app hacktui_core git config core.hooksPath .githooks"],
       ci: [
         "format --check-formatted",
         "compile --warnings-as-errors",
@@ -52,10 +52,10 @@ defmodule HacktuiUmbrella.MixProject do
   end
 
   def cli do
-    # Note: credo/dialyzer deliberately run in :dev so local hook runs and the recorded
-    # baselines use the same PLT and build. Putting them in :test would make local and
-    # CI counts incomparable.
-    [preferred_envs: [ci: :test]]
+    # No preferred_envs: credo and dialyzer must run in :dev so the local hook, CI, and
+    # the recorded baselines all measure the same build and PLT. Forcing :test here made
+    # `mix ci` disagree with both.
+    []
   end
 
   defp releases do

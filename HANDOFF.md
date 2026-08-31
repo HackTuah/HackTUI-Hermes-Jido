@@ -9,9 +9,9 @@ Rolling state for CLAUDE.md §6. Update at the end of every slice and before any
 
 Slice 01 (`slice/01-governance-gates`) installed the governance CLAUDE.md assumed
 already existed. Before it, four of the seven §4 gates could not run at all and the
-§85 secret scan could never pass.
+section 10 secret scan could never pass.
 
-The gates now run. **Three of them do not pass**, and that is recorded rather than
+The gates now run. **Five of them do not pass**, and that is recorded rather than
 hidden — see `.claude/gate-baseline.json` and
 `docs/slices/01-governance-gates/FINDINGS.md`.
 

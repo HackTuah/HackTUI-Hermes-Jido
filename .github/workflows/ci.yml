@@ -62,9 +62,15 @@ jobs:
       - name: Gate - test ratchet
         run: |
           set -o pipefail
-          mix test 2>&1 | tee /tmp/test.log || true
-          grep -qE '[0-9]+ tests?, [0-9]+ failures?' /tmp/test.log || {
-            echo "::error::mix test produced no summary; refusing to score as improvement"; exit 1; }
+          mix test > /tmp/test.log 2>&1; status=$?
+          cat /tmp/test.log
+          # ExUnit exits 0 (passed) or 2 (tests failed). Anything else means the run did
+          # not measure every app -- a partial log summing to fewer failures would read
+          # as an improvement. Must match .githooks/pre-commit.
+          case "$status" in 0|2) ;; *) echo "::error::mix test exited $status; run incomplete"; exit 1 ;; esac
+          want=$(ls -d apps/*/test | wc -l)
+          got=$(grep -cE '[0-9]+ tests?, [0-9]+ failures?' /tmp/test.log)
+          [ "$got" -ge "$want" ] || { echo "::error::only $got/$want app summaries; run incomplete"; exit 1; }
           now=$(grep -oE '[0-9]+ failures?' /tmp/test.log | grep -oE '^[0-9]+' | paste -sd+ | bc)
           base=$(jq -r .test_failures .claude/gate-baseline.json)
           echo "test failures: $now (baseline $base)"
@@ -97,6 +103,7 @@ jobs:
       - name: Gate - baseline may only decrease
         if: github.event_name == 'pull_request'
         run: |
+          # NOTE: pushes to main skip this. main is unprotected; the local hook covers it.
           git fetch --depth=1 origin ${{ github.base_ref }}
           git fetch --depth=1 origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
           old=$(git show origin/${{ github.base_ref }}:.claude/gate-baseline.json) || {

@@ -355,3 +355,63 @@ contradiction; the `commit-msg` comment that claimed no text-based exemptions wh
 on `slice/*` pushes, the `fixup!` text exemption, `.credo.exs` being gameable (and
 `Credo.Check.Warning.UnsafeToAtom` being disabled in the stock config while four unsafe
 `String.to_atom` sites are known), and contributor docs not mentioning `mix setup`.
+
+## F13 — Round-4 review (fresh context, on the pushed commit `563b26c`)
+
+The commitment recorded in `REVIEW.signoff` — that slice 02 would open with a
+fresh-context review of this commit — was honoured. It returned **FAIL** and found three
+items the previous three rounds missed, one of them self-inflicted in round 3.
+
+**B1 — `mix setup` could not install the hooks. Self-inflicted in round 3.**
+Round 3 flagged `mix cmd --app` as deprecated. The "fix" changed it to `mix do --app`.
+But `mix cmd` runs *shell commands* and `mix do` runs *Mix tasks* — there is no `git`
+Mix task:
+```
+$ mix do --app hacktui_core git config --get core.hooksPath
+** (Mix) The task "git" could not be found
+```
+So the slice's only installation mechanism was broken, and `CLAUDE.md`, `PLAN.md`,
+`HANDOFF.md` and `FINDINGS.md` all asserted it worked. On a fresh clone the slice
+delivered no gate at all. A working call was replaced with a non-functional one while
+chasing a warning. Restored to `mix cmd --app`; verified:
+```
+$ git config --unset core.hooksPath && mix setup >/dev/null 2>&1; echo $?
+0
+$ git config --get core.hooksPath
+.githooks
+```
+(`mix cmd --app` emits 7 deprecation warnings — one per umbrella app — and works. The
+warning was never the problem.)
+
+**H2 — the `_corrections` escape hatch matched a numeric *prefix*.** `$o` was unanchored,
+so a correction recording `"from": 77` authorised a `7 -> 8` raise on a different key,
+while printing the reassuring message that a correction was on record:
+```
+  ACCEPTED as documented correction (o=7 matched from:77)
+```
+Fixed: `from` is anchored with `[^0-9]` and `to` must equal the new value. Re-verified —
+the synthetic collision is rejected and the real `60 -> 61` correction still passes.
+
+**M3 — two fixes claimed in three documents were never applied.** `HANDOFF.md:12` still
+carried a `§85` line-number-as-section citation and `:14` still said "Three of them do not
+pass" after `CLAUDE.md` was corrected to five. `FINDINGS.md` F10j/F12 and `REVIEW.md` both
+listed these as fixed. Same class as F3 and B3 — a claimed fix that did not land.
+
+Also fixed from that round: CI's test ratchet lacked the exit-status and per-app
+completeness guards the hook gained in round 3, so `CLAUDE.md`'s "CI repeats the same
+baseline comparison" was false (H1); `improved` was a pass that left permanent slack, so
+the ratchet never tightened (M5 — now a hard failure demanding the baseline be lowered in
+the same commit); ignored files under source paths were invisible to the working-tree
+check (M7); the sign-off hash omitted binary content and `core.abbrev` (M6); "clean"
+phrases were matched unanchored anywhere in a log (L1); the hex.audit line hard-coded
+"incl. hpax HIGH" and would lie once patched (L3); `preferred_envs: [ci: :test]` made
+`mix ci` contradict the comment two lines above it (L4); and `.claude/hooks/` was an empty
+untracked residue of the abandoned settings.json approach.
+
+**Recorded as accepted limits rather than fixed:** merge/rebase/cherry-pick commits run no
+`pre-commit` gate at all (`githooks(5)`), and the sign-off hash cannot be fully pinned
+against `.gitattributes` diff drivers. Both in `BACKLOG.md`.
+
+The reviewer's amended capability statement is adopted: *a competent regression detector
+for a cooperating author, no assurance against a non-cooperating one — and, as shipped in
+`563b26c`, not even installed for a cooperating author who follows the documented setup.*

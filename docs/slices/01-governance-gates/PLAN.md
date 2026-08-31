@@ -1,7 +1,7 @@
 # Slice 01 — governance-gates
 
 **Branch:** `slice/01-governance-gates`
-**Status:** in review (round 3 — rounds 1 and 2 both returned FAIL from two reviewers each)
+**Status:** landed on main as `563b26c`; follow-up commit applies round-4 review fixes
 **Depends on:** nothing (bootstrap slice)
 
 > CLAUDE.md numbers its sections 0–10. An earlier draft of this file cited *line numbers*
@@ -78,9 +78,8 @@ baseline is likewise a hard failure, not a skip.
       transcript recorded in FINDINGS F11.
 - [x] Hook blocks a commit message with no `NN-` slice reference, and the `Merge `
       bypass found in review is closed (FINDINGS F10).
-- [ ] Hook permits this slice's own commit. **Currently false by design**: the
-      sign-off gate blocks it until a reviewer records a matching hash. That is the
-      gate working, not a defect.
+- [x] Hook permits this slice's own commit — `563b26c` passed its own gate with a
+      matching `REVIEW.signoff`.
 - [x] `mix deps.get` leaves `mix.lock` unmodified.
 - [x] CLAUDE.md section 10's pattern returns empty.
 - [x] `FINDINGS.md` records baseline output for all seven gates, with commands, and the
@@ -88,7 +87,10 @@ baseline is likewise a hard failure, not a skip.
 - [x] CI workflow present with the Postgres service **and a baseline comparison** so it
       is not green-always.
 - [x] Ratchets fail closed on gate crash and on missing baseline (FINDINGS F9).
-- [x] Hooks installable by construction (`mix setup`), not only by local git config.
+- [x] Hooks installable by construction (`mix setup`). **Round-4 review found this was
+      false as shipped** — `mix do ... git config` cannot work, since `mix do` runs Mix
+      tasks and there is no `git` task. Restored to `mix cmd --app`; `mix setup` now
+      exits 0 and sets `core.hooksPath`.
 - [ ] Independent reviewer sign-off (sections 0 and 8). Rounds 1, 2 and 3 all returned
       **FAIL**; round 3 was a fresh reviewer with no prior context, per the maintainer's
       definition of independent review. Its blockers are fixed; residual items are in

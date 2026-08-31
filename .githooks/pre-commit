@@ -34,7 +34,10 @@ echo "== CLAUDE.md section 4 commit gates =="
 # describe the commit. Section 4 forbids `git stash`, so we refuse rather than guess.
 # --untracked-files matters: an untracked lib/*.ex can make compile pass for a commit
 # that does not contain it.
-dirty=$(git status --porcelain --untracked-files=normal | grep -vE '^[MARCD] ' || true)
+dirty=$(git status --porcelain --untracked-files=normal | grep -vE '^[MARCDT] ' || true)
+ignored_src=$(git status --porcelain --ignored=matching -- 'apps/*/lib' 'apps/*/test' config \
+  | grep '^!!' || true)
+[ -z "$ignored_src" ] || { die "working tree" "FAIL -- ignored files under source paths would be measured but not committed"; printf '%s\n' "$ignored_src" | sed 's/^/      /'; }
 if [ -n "$dirty" ]; then
   die "working tree" "FAIL -- unstaged or untracked changes; gates would not measure the staged diff"
   printf '%s\n' "$dirty" | sed 's/^/      /'
@@ -61,8 +64,9 @@ if git cat-file -e HEAD:"$BASELINE" 2>/dev/null; then
     if [ "$n" -gt "$o" ]; then
       # An increase is permitted ONLY with a matching, reviewable entry in _corrections.
       # This is an audit record, not a bypass: the reason ships in the reviewed diff.
-      if grep -A3 "\"key\"[[:space:]]*:[[:space:]]*\"$k\"" "$BASELINE" 2>/dev/null \
-         | grep -q "\"from\"[[:space:]]*:[[:space:]]*$o" ; then
+      blk=$(grep -A4 "\"key\"[[:space:]]*:[[:space:]]*\"$k\"" "$BASELINE" 2>/dev/null)
+      if printf '%s' "$blk" | grep -qE "\"from\"[[:space:]]*:[[:space:]]*$o[^0-9]" \
+         && printf '%s' "$blk" | grep -qE "\"to\"[[:space:]]*:[[:space:]]*$n[^0-9]" ; then
         note "baseline" "$k raised $o -> $n with a recorded correction (see _corrections)"
       else
         die "baseline" "FAIL -- $k raised $o -> $n with no _corrections entry; baselines may only decrease"
@@ -79,7 +83,8 @@ ratchet() {
   if ! is_uint "$now"; then
     die "$label" "FAIL -- non-numeric result '$now'; refusing to treat as a pass"; return; fi
   if   [ "$now" -gt "$base" ]; then die  "$label" "REGRESSION: $now > baseline $base"
-  elif [ "$now" -lt "$base" ]; then note "$label" "improved: $now < $base -- lower the baseline"
+  elif [ "$now" -lt "$base" ]; then
+    die "$label" "improved to $now (baseline $base) -- lower the baseline to $now in this commit"
   else                              note "$label" "held at $now"
   fi
 }
@@ -111,13 +116,13 @@ count_test_failures() {
 count_credo() {
   # A clean run prints "found no issues" and no category totals -- that is 0, not a
   # measurement failure. Without this the gate becomes unsatisfiable the day it passes.
-  grep -q 'found no issues' "$1" && { printf 0; return 0; }
+  grep -qE '^[0-9]+ mods/funs, found no issues' "$1" && { printf 0; return 0; }
   grep -qE '[0-9]+ (warning|refactoring opportunit|code readability issue|software design suggestion|consistency issue)' "$1" || return 1
   grep -oE '[0-9]+ (warnings?|refactoring opportunit(y|ies)|code readability issues?|software design suggestions?|consistency issues?)' "$1" \
     | grep -oE '^[0-9]+' | paste -sd+ | bc
 }
 count_dialyzer() {
-  grep -q 'done (passed successfully)' "$1" && { printf 0; return 0; }
+  grep -qE '^done \(passed successfully\)' "$1" && { printf 0; return 0; }
   grep -oE 'Total errors: [0-9]+' "$1" | grep -oE '[0-9]+$' | head -1
 }
 mix test >"$LOGDIR/test.log" 2>&1; TEST_STATUS=$?
@@ -138,7 +143,7 @@ if mix hex.audit >"$LOGDIR/hexaudit.log" 2>&1; then
   note "hex.audit" "clean"
 else
   hx=$(grep -cE '^  [a-z_]+ [0-9]' "$LOGDIR/hexaudit.log") || hx=0
-  note "hex.audit" "advisory: $hx advisories (superset of deps.audit; incl. hpax HIGH)"
+  note "hex.audit" "advisory: $hx advisories (superset of deps.audit)"
 fi
 : > "$LOGDIR/sobelow.log"
 for a in apps/*/; do mix sobelow --root "$a" --exit >>"$LOGDIR/sobelow.log" 2>&1 || true; done
@@ -149,7 +154,7 @@ note "sobelow" "advisory: $sb findings"
 # Hash pinned so it is reproducible across git configs. Excludes signoff files so that
 # adding the signoff does not invalidate the hash it certifies.
 staged_hash=$(git -c diff.noprefix=false -c diff.context=3 -c diff.algorithm=myers \
-  diff --cached -- . ':(exclude)docs/slices/*/REVIEW.signoff' | sha256sum | cut -d' ' -f1)
+  -c core.abbrev=40 diff --cached --binary --no-ext-diff --no-textconv -- . ':(exclude)docs/slices/*/REVIEW.signoff' | sha256sum | cut -d' ' -f1)
 if ! printf '%s' "$staged_hash" | grep -qE '^[0-9a-f]{64}$'; then
   die "review signoff" "FAIL -- could not compute staged-diff hash; refusing to pass unmeasured"
 else

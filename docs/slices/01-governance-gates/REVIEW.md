@@ -90,6 +90,37 @@ Reviewer B's capability assessment is accepted and recorded in `BACKLOG.md`: thi
 cannot bear the weight CLAUDE.md section 0 places on it; branch protection with required
 reviewers is the real control and is not yet configured.
 
+## Round 4 — fresh reviewer, on the pushed commit `563b26c`
+
+Verdict: **FAIL**, with the corrections scoped as "a follow-up commit inside slice 01,
+not a redesign."
+
+The reviewer reproduced **every** recorded number exactly — 7/115 tests, 77 credo, 61
+dialyzer, 13/6 deps.audit, 23/7 hex.audit, 7 sobelow — and independently re-derived the
+sign-off hash bit-for-bit (`23c6eaa9…`). It could not defeat the ratchet counters. It also
+confirmed the `_corrections` rationale is checkable: `grep -c '^{:warn_unknown'` = 1, so
+61 − 1 = the erroneous 60, exactly as F3 states.
+
+What it found, all reproduced before acceptance and fixed in the follow-up (FINDINGS F13):
+
+| # | Defect |
+|---|---|
+| B1 | `mix setup` could not install the hooks — a round-3 regression that swapped a working `mix cmd` for a `mix do` that cannot resolve. Four documents asserted it worked. **On a fresh clone the slice delivered no gate at all.** |
+| H1 | CI's test ratchet lacked the exit-status and per-app completeness guards the hook gained in round 3, so CLAUDE.md's "CI repeats the same baseline comparison" was false |
+| H2 | The `_corrections` hatch matched a numeric prefix — `"from": 77` authorised a `7 → 8` raise, while printing that a correction was on record |
+| M3 | A `§85` citation and a "Three of them do not pass" count in `HANDOFF.md` were listed as fixed in three documents and were never applied |
+| M5 | "improved" was a pass that left permanent slack; the baseline never had to fall |
+| M6/M7 | Sign-off hash omitted binary content; ignored files under source paths escaped the working-tree check |
+| L1/L3/L4 | Unanchored "clean" phrase matching; a hard-coded `hpax HIGH` string that would lie once patched; `preferred_envs` making `mix ci` contradict its own comment |
+
+Two limits are now **recorded rather than fixed**: merge/rebase/cherry-pick commits invoke
+no `pre-commit` hook at all (`githooks(5)`), and the sign-off hash cannot be fully pinned
+against `.gitattributes` diff drivers.
+
+The reviewer's closing note is worth keeping: the honest-reporting discipline — retracting
+F3 in place, leaving criteria unchecked with reasons, and `REVIEW.signoff` stating what it
+does *not* assert — "is the main reason the remaining defects were findable at all."
+
 ## Round 3 — fresh reviewer, no prior context
 
 The maintainer defined independent review as **a reviewer spawned with no knowledge of
