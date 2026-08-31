@@ -876,44 +876,6 @@ mix compile --warnings-as-errors
 
 ---
 
-# GitHub Recommendations
-
-## Suggested repository description
-
-**Terminal-native purple team platform built with Elixir/BEAM, Jido, and MCP for realtime telemetry, alerting, and agent-assisted investigation.**
-
-## Suggested GitHub topics
-
-```text
-elixir
-beam
-cybersecurity
-siem
-soc
-purple-team
-threat-detection
-mcp
-jido
-terminal-ui
-observability
-incident-response
-```
-
-## Recommended repo sections
-
-Create or keep these files near the root:
-
-- `ARCHITECTURE.md`
-- `THREAT_MODEL.md`
-- `PROJECT_BRIEF.md`
-- `ROADMAP.md`
-- `DECISIONS.md`
-- `PRODUCTION_READINESS_REPORT.md`
-
-These help reviewers quickly understand the seriousness of the system.
-
----
-
 # Security and Privacy Notes
 
 Before publishing screenshots or logs:
@@ -1005,22 +967,11 @@ printf 'Content-Length: %s
 
 # License
 
-Copyright (c) 2026 Ayla
+HackTUI is licensed under the **Apache License, Version 2.0**. See [`LICENSE`](LICENSE)
+for the full terms and [`NOTICE`](NOTICE) for attribution requirements.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to use,
-copy, modify, merge, and distribute the Software for non-commercial purposes only.
+Apache-2.0 was chosen over a simpler permissive license because it includes an
+explicit patent grant and contribution terms, which matter for security research
+software that may be evaluated, extended, or redistributed by external parties.
 
-Commercial use of the Software is strictly prohibited without explicit written
-permission from the author.
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Contributions are accepted under the same license; see [`CONTRIBUTING.md`](CONTRIBUTING.md).

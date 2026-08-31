@@ -19,6 +19,12 @@
 - For integration-tagged tests, include the tag explicitly when needed.
 - Report exact commands run and any exclusions/limitations.
 
+## License
+
+This project is licensed under the Apache License, Version 2.0. By submitting a
+contribution you agree that it is licensed under those same terms, per Section 5
+of the license. Do not submit code you are not authorized to license this way.
+
 ## Demo discipline
 - Preserve bounded terminal output.
 - Keep demo language explicit about simulation and local-only scope.

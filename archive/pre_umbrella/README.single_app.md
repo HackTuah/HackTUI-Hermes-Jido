@@ -143,6 +143,7 @@ mix run --no-halt
 
 ##  License
 
-MIT License
+Apache License, Version 2.0. Copyright 2026 Ayla Croft.
 
-Copyright (c) 2026 aylac
+This is an archived pre-umbrella snapshot; the authoritative license for the
+project is the `LICENSE` file at the repository root.

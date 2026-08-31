@@ -1,0 +1,12 @@
+HackTUI
+Copyright 2026 Ayla Croft
+
+This product includes software developed by the HackTUI project.
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file
+for the full terms.
+
+This repository does not include the private Hermes runtime or personal
+agent configuration referenced in the documentation. Third-party
+dependencies retain their own licenses; see mix.lock and the individual
+package sources for details.
