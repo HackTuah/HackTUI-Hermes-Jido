@@ -4,7 +4,10 @@ Use the stable launcher below whenever you want Hermes or any other MCP client t
 
 ## Authoritative launcher
 
-`/home/aylac/Projects/hacktui_hermes/bin/hacktui-mcp`
+`<repo>/bin/hacktui-mcp`
+
+MCP clients generally cannot resolve relative paths, so give them the absolute
+path to this launcher (for example `/absolute/path/to/hacktui_hermes/bin/hacktui-mcp`).
 
 Why this launcher matters:
 - exports `HACKTUI_MCP_STDIO=1`
@@ -18,7 +21,7 @@ From the repo root:
 
 ```bash
 printf 'Content-Length: 52\r\n\r\n{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
-  | /home/aylac/Projects/hacktui_hermes/bin/hacktui-mcp
+  | ./bin/hacktui-mcp
 ```
 
 Expected behavior:
@@ -32,7 +35,7 @@ Example `~/.hermes/config.yaml` entry:
 ```yaml
 mcp_servers:
   hacktui:
-    command: "/home/aylac/Projects/hacktui_hermes/bin/hacktui-mcp"
+    command: "/absolute/path/to/hacktui_hermes/bin/hacktui-mcp"
     args: []
     connect_timeout: 60
     timeout: 180

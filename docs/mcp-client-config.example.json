@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "hacktui-hermes": {
-      "command": "/home/aylac/Projects/hacktui_hermes/bin/hacktui-mcp",
+      "command": "/absolute/path/to/hacktui_hermes/bin/hacktui-mcp",
       "args": [],
-      "cwd": "/home/aylac/Projects/hacktui_hermes",
+      "cwd": "/absolute/path/to/hacktui_hermes",
       "env": {
         "MIX_ENV": "dev"
       }

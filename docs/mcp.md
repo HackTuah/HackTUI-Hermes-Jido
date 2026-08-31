@@ -42,7 +42,7 @@ Example MCP client config:
 {
   "mcpServers": {
     "hacktui": {
-      "command": "/home/aylac/Projects/hacktui_hermes/bin/hacktui-mcp"
+      "command": "/absolute/path/to/hacktui_hermes/bin/hacktui-mcp"
     }
   }
 }
