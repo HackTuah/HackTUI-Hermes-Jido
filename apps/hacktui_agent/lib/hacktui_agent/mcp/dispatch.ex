@@ -1,4 +1,6 @@
 defmodule HacktuiAgent.MCP.Dispatch do
+  require Logger
+
   @moduledoc """
   Minimal MCP dispatch layer wired onto hub query and proposal services.
   """
@@ -9,6 +11,26 @@ defmodule HacktuiAgent.MCP.Dispatch do
   @spec call(atom(), map(), keyword()) ::
           {:ok, term()}
           | {:error, :unknown_tool | :missing_case_id | :sensor_log_query_unavailable}
+  @doc """
+  Dispatches an MCP tool call, converting any raised error into an error tuple.
+
+  Without this, a single unhandled exception in a tool propagated through
+  `MCP.Server.handle_message/2` and `MCP.Stdio.loop/1` -- neither of which rescues --
+  and killed the client's transport.
+  """
+  @spec safe_call(atom(), term(), keyword()) :: {:ok, term()} | {:error, term()}
+  def safe_call(tool, args, opts) do
+    call(tool, args, opts)
+  rescue
+    error ->
+      Logger.error("[hacktui_mcp] tool #{inspect(tool)} raised: #{Exception.message(error)}")
+      {:error, %{tool: tool, reason: Exception.message(error)}}
+  catch
+    :exit, reason ->
+      Logger.error("[hacktui_mcp] tool #{inspect(tool)} exited: #{inspect(reason)}")
+      {:error, %{tool: tool, reason: inspect(reason)}}
+  end
+
   def call(:get_latest_alerts, _args, opts) do
     query_service = Keyword.get(opts, :query_service, QueryService)
     {:ok, query_service.alert_queue()}

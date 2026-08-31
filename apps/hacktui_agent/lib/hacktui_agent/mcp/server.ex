@@ -20,7 +20,7 @@ defmodule HacktuiAgent.MCP.Server do
   @spec new(keyword()) :: state()
   def new(opts \\ []) do
     %{
-      dispatch: Keyword.get(opts, :dispatch, &Dispatch.call/3),
+      dispatch: Keyword.get(opts, :dispatch, &Dispatch.safe_call/3),
       dispatch_opts: Keyword.get(opts, :dispatch_opts, []),
       initialized?: false,
       shutdown?: false,

@@ -142,6 +142,14 @@ defmodule HacktuiHub.Runtime do
   defp normalize_actor(_),
     do: %ActorRef{id: "unknown", type: :service, role: :sensor, source: :hacktui_sensor}
 
+  # HacktuiStore returns Ecto.Multi's {:error, step, reason, changes} on failure. Every
+  # public function here is @spec'd {:ok, map()} | {:error, term()}, and none of these
+  # `with` blocks had an `else`, so the raw 4-tuple leaked to callers.
+  # Forwarder.normalize_rpc_result/1 then turned that leak into SUCCESS.
+  defp normalize_persistence_error({:error, step, reason, _changes}), do: {:error, {step, reason}}
+  defp normalize_persistence_error({:error, reason}), do: {:error, reason}
+  defp normalize_persistence_error(other), do: {:error, other}
+
   defp repo_available?(repo) do
     is_atom(repo) and Code.ensure_loaded?(repo) and
       function_exported?(repo, :transaction, 1) and not is_nil(Process.whereis(repo))
@@ -169,6 +177,8 @@ defmodule HacktuiHub.Runtime do
          case_result: case_result,
          threat_score: threat_score
        }}
+    else
+      other -> normalize_persistence_error(other)
     end
   end
 
@@ -179,6 +189,8 @@ defmodule HacktuiHub.Runtime do
     with {:ok, aggregate, event} <- DetectionService.transition_alert(alert, command, opts),
          {:ok, persistence} <- Alerts.persist_transition(repo, aggregate, event) do
       {:ok, %{aggregate: aggregate, event: event, persistence: persistence}}
+    else
+      other -> normalize_persistence_error(other)
     end
   end
 
@@ -189,6 +201,8 @@ defmodule HacktuiHub.Runtime do
     with {:ok, aggregate, event} <- CaseworkService.open_case(command, opts),
          {:ok, persistence} <- Cases.persist_open(repo, aggregate, event) do
       {:ok, %{aggregate: aggregate, event: event, persistence: persistence}}
+    else
+      other -> normalize_persistence_error(other)
     end
   end
 
@@ -199,6 +213,8 @@ defmodule HacktuiHub.Runtime do
     with {:ok, aggregate, event} <- CaseworkService.transition_case(case_record, command, opts),
          {:ok, persistence} <- Cases.persist_transition(repo, aggregate, event) do
       {:ok, %{aggregate: aggregate, event: event, persistence: persistence}}
+    else
+      other -> normalize_persistence_error(other)
     end
   end
 
@@ -209,6 +225,8 @@ defmodule HacktuiHub.Runtime do
     with {:ok, aggregate, event} <- ResponseGovernanceService.request_action(command, opts),
          {:ok, persistence} <- Actions.persist_request(repo, aggregate, event) do
       {:ok, %{aggregate: aggregate, event: event, persistence: persistence}}
+    else
+      other -> normalize_persistence_error(other)
     end
   end
 
@@ -230,6 +248,8 @@ defmodule HacktuiHub.Runtime do
     with {:ok, event} <- AuditService.record(action, actor, opts),
          {:ok, persistence} <- Audits.persist(repo, event) do
       {:ok, %{event: event, persistence: persistence}}
+    else
+      other -> normalize_persistence_error(other)
     end
   end
 

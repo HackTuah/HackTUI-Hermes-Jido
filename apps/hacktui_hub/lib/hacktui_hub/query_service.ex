@@ -12,6 +12,8 @@ defmodule HacktuiHub.QueryService do
 
   import Ecto.Query
 
+  require Logger
+
   alias HacktuiStore.{ReadModels, Repo}
   alias HacktuiStore.Schema.{ActionRequest, Alert, AuditEvent, CaseRecord}
 
@@ -248,12 +250,16 @@ defmodule HacktuiHub.QueryService do
     approval_limit = Keyword.get(opts, :approval_limit, 8)
     observation_limit = Keyword.get(opts, :observation_limit, 50)
 
-    %{
+    clear_query_failure()
+
+    snapshot = %{
       alerts: alert_queue(repo) |> Enum.take(alert_limit),
       cases: case_board(repo) |> Enum.take(case_limit),
       approvals: approval_inbox(repo) |> Enum.take(approval_limit),
       observations: latest_observations(repo, limit: observation_limit)
     }
+
+    Map.put(snapshot, :degraded, last_query_failure())
   end
 
   def live_dashboard_snapshot, do: live_dashboard_snapshot(Repo, [])
@@ -285,20 +291,16 @@ defmodule HacktuiHub.QueryService do
       metadata = Map.get(obs, :metadata, %{}) || %{}
 
       collector =
-        Map.get(metadata, :collector) ||
-          Map.get(metadata, "collector") ||
-          ""
-          |> to_string()
-          |> String.downcase()
+        (Map.get(metadata, :collector) || Map.get(metadata, "collector") || "")
+        |> to_string()
+        |> String.downcase()
 
       payload = Map.get(obs, :payload, %{}) || %{}
 
       summary =
-        Map.get(payload, "summary") ||
-          Map.get(payload, :summary) ||
-          ""
-          |> to_string()
-          |> String.downcase()
+        (Map.get(payload, "summary") || Map.get(payload, :summary) || "")
+        |> to_string()
+        |> String.downcase()
 
       String.contains?(kind, "jido") or
         String.contains?(kind, "agent") or
@@ -490,17 +492,52 @@ defmodule HacktuiHub.QueryService do
 
   defp normalize_state(state), do: state |> to_string() |> String.downcase()
 
-  defp safe_all_query(repo, query) do
+  # Returns {:ok, rows} | {:error, reason}. An operator must be able to tell
+  # "no alerts" from "cannot read alerts"; a security console that renders those
+  # identically is worse than one that shows nothing.
+  @spec query_all(module(), Ecto.Query.t()) :: {:ok, list()} | {:error, term()}
+  defp query_all(repo, query) do
     if Code.ensure_loaded?(repo) and function_exported?(repo, :all, 1) do
-      repo.all(query)
+      {:ok, repo.all(query)}
     else
-      []
+      {:error, :repo_unavailable}
     end
   rescue
-    _ -> []
+    error -> {:error, error}
   catch
-    :exit, _ -> []
+    :exit, reason -> {:error, {:exit, reason}}
   end
+
+  # List-returning wrapper for callers that cannot handle a tuple. Unlike the previous
+  # silent rescue, a failure is logged and recorded for the dashboard's DEGRADED banner.
+  defp safe_all_query(repo, query) do
+    case query_all(repo, query) do
+      {:ok, rows} ->
+        rows
+
+      {:error, reason} ->
+        Logger.warning("[hacktui_hub] query failed: #{inspect(reason)}")
+        record_query_failure(reason)
+        []
+    end
+  end
+
+  @failure_key {__MODULE__, :last_query_failure}
+
+  defp record_query_failure(reason) do
+    Process.put(@failure_key, %{reason: reason, at: DateTime.utc_now()})
+    :ok
+  end
+
+  @doc """
+  The most recent read-model query failure in this process, or nil.
+
+  Used by the dashboard to render a DEGRADED banner instead of an empty queue.
+  """
+  @spec last_query_failure() :: map() | nil
+  def last_query_failure, do: Process.get(@failure_key)
+
+  defp clear_query_failure, do: Process.delete(@failure_key)
 
   defp event_time(%{metadata: metadata}) when is_map(metadata) do
     ts = Map.get(metadata, :occurred_at) || Map.get(metadata, "occurred_at")

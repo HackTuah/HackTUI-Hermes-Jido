@@ -37,6 +37,20 @@ defmodule HacktuiTui.LiveDashboardView do
     |> Enum.join("\n")
   end
 
+  # A security console must never render "cannot read alerts" as "alerts=0".
+  defp degraded_banner(data) do
+    case Map.get(data, :degraded) do
+      nil ->
+        ""
+
+      %{reason: reason} ->
+        apply_style("  DEGRADED: read failed (#{inspect(reason)})", @fg_red <> @bold)
+
+      other ->
+        apply_style("  DEGRADED: #{inspect(other)}", @fg_red <> @bold)
+    end
+  end
+
   defp header_rows(data, ui, width) do
     mode =
       case ui.mode do
@@ -60,7 +74,8 @@ defmodule HacktuiTui.LiveDashboardView do
         "  cases=#{length(Map.get(data, :cases, []))}" <>
         "  approvals=#{length(Map.get(data, :approvals, []))}" <>
         "  obs=#{length(Map.get(data, :observations, []))}" <>
-        "  #{health}"
+        "  #{health}" <>
+        degraded_banner(data)
 
     [
       truncate_rendered(line1, width),
