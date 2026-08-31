@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# CLAUDE.md section 7: commit subject must start with the slice reference NN-kebab-name.
+set -euo pipefail
+msg_file="$1"
+subject=$(head -n1 "$msg_file")
+
+# Allow git's own generated messages through (merge/revert/fixup).
+# Merge/revert/cherry-pick exemptions are gated on git's actual state, not on text the
+# author can type: "Merge branch x" typed by hand is rejected.
+# fixup!/squash! remain TEXT exemptions -- they are meant to be squashed before landing.
+# That residual gap is recorded in BACKLOG.md.
+if [ -f "$(git rev-parse --git-dir)/MERGE_HEAD" ] \
+   || [ -f "$(git rev-parse --git-dir)/REVERT_HEAD" ] \
+   || [ -f "$(git rev-parse --git-dir)/CHERRY_PICK_HEAD" ]; then
+  exit 0
+fi
+case "$subject" in fixup!\ *|squash!\ *) exit 0 ;; esac
+
+if ! printf '%s' "$subject" | grep -qE '^[0-9]{2}-[a-z0-9]+(-[a-z0-9]+)*: .+'; then
+  cat >&2 <<MSG
+COMMIT REJECTED -- CLAUDE.md section 7
+
+  Subject must be:  NN-kebab-name: <imperative summary>
+  Got:              $subject
+
+  Example: 01-governance-gates: install commit gate tooling
+MSG
+  exit 1
+fi
+
+slice=$(printf '%s' "$subject" | grep -oE '^[0-9]{2}-[a-z0-9-]+')
+if [ ! -d "docs/slices/$slice" ]; then
+  echo "COMMIT REJECTED -- docs/slices/$slice/ does not exist (CLAUDE.md section 6)." >&2
+  exit 1
+fi

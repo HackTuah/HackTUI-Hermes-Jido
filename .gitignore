@@ -60,3 +60,6 @@ Thumbs.db
 
 # Test recordings
 recordings/
+
+# Dialyzer PLTs: large binaries, machine- and version-specific. Rebuilt by CI cache.
+/priv/plts/

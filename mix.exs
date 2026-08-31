@@ -5,21 +5,56 @@ defmodule HacktuiUmbrella.MixProject do
     [
       apps_path: "apps",
       version: "0.1.0",
+      elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       releases: releases(),
-      deps: []
+      deps: deps(),
+      dialyzer: dialyzer()
+    ]
+  end
+
+  # Tooling only. These back the commit gates in CLAUDE.md section 4; none ship at runtime.
+  defp deps do
+    [
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      # runtime: false is omitted deliberately -- in an umbrella it stops mix_audit
+      # from loading its own yaml_elixir dependency, so `mix deps.audit` crashes.
+      {:mix_audit, "~> 2.1", only: [:dev, :test]},
+      {:sobelow, "~> 0.13", only: [:dev, :test], runtime: false}
+    ]
+  end
+
+  defp dialyzer do
+    [
+      plt_local_path: "priv/plts",
+      plt_core_path: "priv/plts",
+      plt_add_apps: [:mix, :ex_unit],
+      ignore_warnings: ".dialyzer_ignore.exs",
+      list_unused_filters: true
     ]
   end
 
   defp aliases do
     [
-      ci: ["format --check-formatted", "test"],
+      setup: ["deps.get", "do --app hacktui_core git config core.hooksPath .githooks"],
+      ci: [
+        "format --check-formatted",
+        "compile --warnings-as-errors",
+        "test",
+        "credo --strict",
+        "deps.audit",
+        "hex.audit"
+      ],
       "test.all": ["test"]
     ]
   end
 
   def cli do
+    # Note: credo/dialyzer deliberately run in :dev so local hook runs and the recorded
+    # baselines use the same PLT and build. Putting them in :test would make local and
+    # CI counts incomparable.
     [preferred_envs: [ci: :test]]
   end
 

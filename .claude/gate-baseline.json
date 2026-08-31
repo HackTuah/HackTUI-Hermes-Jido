@@ -1,0 +1,32 @@
+{
+  "_comment": "Ratchet baseline for CLAUDE.md section 4 gates that cannot pass yet. These counts may only DECREASE. Raising a number is a regression and must be rejected in review. Delete an entry once its gate is clean, and make that gate hard-blocking.",
+  "_established": "2026-08-31",
+  "_slice": "01-governance-gates",
+  "test_failures": 7,
+  "credo_issues": 77,
+  "dialyzer_warnings": 61,
+  "_targets": {
+    "test_failures": "slice 06 drives this to 0",
+    "credo_issues": "reduced opportunistically; no slice owns it yet",
+    "dialyzer_warnings": "no slice owns reduction yet; gate is ratcheted",
+    "hex_audit_advisories": "advisory only; no ratchet yet -- see BACKLOG"
+  },
+  "_method": {
+    "test_failures": "sum of 'N failures' across umbrella apps in `mix test`",
+    "credo_issues": "sum of all FIVE credo summary categories in `mix credo --strict`",
+    "dialyzer_warnings": "`Total errors: N` from `mix dialyzer --format raw` (MIX_ENV=dev)",
+    "hex_audit_advisories": "count of '^  <pkg> <version>' lines in `mix hex.audit` (superset of deps.audit)",
+    "deps_audit_advisories": "count of '^Name:' lines in `mix do deps.loadpaths + deps.audit`"
+  },
+  "hex_audit_advisories": 23,
+  "deps_audit_advisories": 13,
+  "_corrections": [
+    {
+      "key": "dialyzer_warnings",
+      "from": 60,
+      "to": 61,
+      "slice": "01-governance-gates",
+      "reason": "60 was a mis-measurement: it counted :warn_* atoms excluding warn_unknown, an undocumented method. 61 is dialyzer's own `Total errors` and is what the gate now reads. Raising a baseline is otherwise forbidden; this entry is the audit record that makes the increase reviewable. See FINDINGS.md F3/H5."
+    }
+  ]
+}

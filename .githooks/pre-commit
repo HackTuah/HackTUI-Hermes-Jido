@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+# CLAUDE.md section 4 commit gates.
+#
+# Design rule: FAIL CLOSED. A gate that cannot be measured is a failure, never a pass.
+# Every comparison validates its operands first; "pass" is never a fallthrough branch.
+#
+# Scope of what this can enforce (see docs/slices/01-governance-gates/REVIEW.md):
+#   - It is a REGRESSION DETECTOR, not an authorization control.
+#   - `git commit --no-verify` bypasses it; no hook can prevent that.
+#   - `core.hooksPath` is per-clone local config; a clone that never ran `mix setup`
+#     has no local enforcement. CI performs the same baseline comparison.
+#   - The REVIEW.signoff check proves only that the recorded hash matches this diff.
+#     It is a record, not proof a review happened. Real enforcement of CLAUDE.md
+#     section 0 requires branch protection + required reviewers on the remote.
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+BASELINE=.claude/gate-baseline.json
+LOGDIR=$(mktemp -d "${TMPDIR:-/tmp}/hacktui-gate.XXXXXXXX") || exit 1
+KEEP_LOGS=0
+cleanup() { if [ "$KEEP_LOGS" -eq 0 ]; then rm -rf "$LOGDIR"; else
+  echo; echo "Diagnostic logs kept: $LOGDIR"; fi; }
+trap cleanup EXIT
+
+fail=0
+note() { printf '  %-24s %s\n' "$1" "$2"; }
+die()  { note "$1" "$2"; fail=1; KEEP_LOGS=1; }
+is_uint() { case "${1:-}" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
+
+echo "== CLAUDE.md section 4 commit gates =="
+
+# ---------- index isolation ----------
+# Gates measure the WORKING TREE. If it differs from the index the numbers do not
+# describe the commit. Section 4 forbids `git stash`, so we refuse rather than guess.
+# --untracked-files matters: an untracked lib/*.ex can make compile pass for a commit
+# that does not contain it.
+dirty=$(git status --porcelain --untracked-files=normal | grep -vE '^[MARCD] ' || true)
+if [ -n "$dirty" ]; then
+  die "working tree" "FAIL -- unstaged or untracked changes; gates would not measure the staged diff"
+  printf '%s\n' "$dirty" | sed 's/^/      /'
+fi
+
+# ---------- baseline ----------
+baseline_of() {
+  local key=$1 v
+  v=$(grep -oE "\"$key\"[[:space:]]*:[[:space:]]*[0-9]+" "$BASELINE" 2>/dev/null \
+      | grep -oE '[0-9]+$' | head -1)
+  is_uint "$v" || return 1
+  printf '%s' "$v"
+}
+[ -r "$BASELINE" ] || die "baseline" "FAIL -- $BASELINE missing or unreadable"
+
+# Baselines may only DECREASE. Without this, a regression can be hidden by editing the
+# baseline in the same commit.
+if git cat-file -e HEAD:"$BASELINE" 2>/dev/null; then
+  git show HEAD:"$BASELINE" > "$LOGDIR/base.prev" 2>/dev/null
+  for k in test_failures credo_issues dialyzer_warnings; do
+    o=$(grep -oE "\"$k\"[[:space:]]*:[[:space:]]*[0-9]+" "$LOGDIR/base.prev" | grep -oE '[0-9]+$' | head -1)
+    n=$(grep -oE "\"$k\"[[:space:]]*:[[:space:]]*[0-9]+" "$BASELINE"        | grep -oE '[0-9]+$' | head -1)
+    is_uint "$o" && is_uint "$n" || continue
+    if [ "$n" -gt "$o" ]; then
+      # An increase is permitted ONLY with a matching, reviewable entry in _corrections.
+      # This is an audit record, not a bypass: the reason ships in the reviewed diff.
+      if grep -A3 "\"key\"[[:space:]]*:[[:space:]]*\"$k\"" "$BASELINE" 2>/dev/null \
+         | grep -q "\"from\"[[:space:]]*:[[:space:]]*$o" ; then
+        note "baseline" "$k raised $o -> $n with a recorded correction (see _corrections)"
+      else
+        die "baseline" "FAIL -- $k raised $o -> $n with no _corrections entry; baselines may only decrease"
+      fi
+    fi
+  done
+fi
+
+ratchet() {
+  local label=$1 key=$2 log=$3 fn=$4 base now
+  if ! base=$(baseline_of "$key"); then
+    die "$label" "FAIL -- no single integer \"$key\" in $BASELINE"; return; fi
+  now=$("$fn" "$log") || { die "$label" "FAIL -- gate produced no parseable result (see $log)"; return; }
+  if ! is_uint "$now"; then
+    die "$label" "FAIL -- non-numeric result '$now'; refusing to treat as a pass"; return; fi
+  if   [ "$now" -gt "$base" ]; then die  "$label" "REGRESSION: $now > baseline $base"
+  elif [ "$now" -lt "$base" ]; then note "$label" "improved: $now < $base -- lower the baseline"
+  else                              note "$label" "held at $now"
+  fi
+}
+
+# ---------- HARD ----------
+mix compile --warnings-as-errors >"$LOGDIR/compile.log" 2>&1 \
+  && note "compile" "pass" || die "compile" "FAIL (--warnings-as-errors)"
+mix format --check-formatted >"$LOGDIR/fmt.log" 2>&1 \
+  && note "format" "pass" || die "format" "FAIL -- run: mix format"
+
+# Anchored. CLAUDE.md section 10's original pattern was unanchored and always matched
+# envelope.ex on the substring "env", so it could never pass.
+secrets=$(git ls-files | grep -Ei '(^|/)\.env$|\.(key|pem|pcap|pcapng|p12)$' || true)
+if [ -z "$secrets" ]; then note "secret scan" "pass"
+else die "secret scan" "FAIL -- tracked secret-like files:"; printf '%s\n' "$secrets" | sed 's/^/      /'; fi
+
+# ---------- RATCHET ----------
+count_test_failures() {
+  # ExUnit exits 0 (all passed) or 2 (tests failed). Anything else -- a CompileError in
+  # a later app's test/, a timeout, OOM, SIGINT -- means the run did not measure every
+  # app. A partial log summing to fewer failures would otherwise read as an improvement.
+  case "${TEST_STATUS:-1}" in 0|2) ;; *) return 1 ;; esac
+  local want got
+  want=$(ls -d apps/*/test 2>/dev/null | wc -l)
+  got=$(grep -cE '[0-9]+ tests?, [0-9]+ failures?' "$1")
+  [ "$got" -ge "$want" ] || return 1
+  grep -oE '[0-9]+ failures?' "$1" | grep -oE '^[0-9]+' | paste -sd+ | bc
+}
+count_credo() {
+  # A clean run prints "found no issues" and no category totals -- that is 0, not a
+  # measurement failure. Without this the gate becomes unsatisfiable the day it passes.
+  grep -q 'found no issues' "$1" && { printf 0; return 0; }
+  grep -qE '[0-9]+ (warning|refactoring opportunit|code readability issue|software design suggestion|consistency issue)' "$1" || return 1
+  grep -oE '[0-9]+ (warnings?|refactoring opportunit(y|ies)|code readability issues?|software design suggestions?|consistency issues?)' "$1" \
+    | grep -oE '^[0-9]+' | paste -sd+ | bc
+}
+count_dialyzer() {
+  grep -q 'done (passed successfully)' "$1" && { printf 0; return 0; }
+  grep -oE 'Total errors: [0-9]+' "$1" | grep -oE '[0-9]+$' | head -1
+}
+mix test >"$LOGDIR/test.log" 2>&1; TEST_STATUS=$?
+ratchet "test (ratchet)" test_failures "$LOGDIR/test.log" count_test_failures
+mix credo --strict >"$LOGDIR/credo.log" 2>&1;        ratchet "credo (ratchet)"    credo_issues      "$LOGDIR/credo.log"    count_credo
+mix dialyzer --format raw >"$LOGDIR/dialyzer.log" 2>&1; ratchet "dialyzer (ratchet)" dialyzer_warnings "$LOGDIR/dialyzer.log" count_dialyzer
+
+# ---------- ADVISORY ----------
+if mix do deps.loadpaths + deps.audit >"$LOGDIR/audit.log" 2>&1; then
+  note "deps.audit" "clean"
+else
+  n=$(grep -c '^Name:' "$LOGDIR/audit.log") || n=0
+  is_uint "$n" && [ "$n" -gt 0 ] \
+    && note "deps.audit" "advisory: $n known vulnerabilities" \
+    || { note "deps.audit" "ADVISORY: audit failed without reporting advisories"; KEEP_LOGS=1; }
+fi
+if mix hex.audit >"$LOGDIR/hexaudit.log" 2>&1; then
+  note "hex.audit" "clean"
+else
+  hx=$(grep -cE '^  [a-z_]+ [0-9]' "$LOGDIR/hexaudit.log") || hx=0
+  note "hex.audit" "advisory: $hx advisories (superset of deps.audit; incl. hpax HIGH)"
+fi
+: > "$LOGDIR/sobelow.log"
+for a in apps/*/; do mix sobelow --root "$a" --exit >>"$LOGDIR/sobelow.log" 2>&1 || true; done
+sb=$(grep -c '^File:' "$LOGDIR/sobelow.log") || sb=0     # grep -c prints 0 AND exits 1
+note "sobelow" "advisory: $sb findings"
+
+# ---------- REVIEW RECORD (CLAUDE.md section 4) ----------
+# Hash pinned so it is reproducible across git configs. Excludes signoff files so that
+# adding the signoff does not invalidate the hash it certifies.
+staged_hash=$(git -c diff.noprefix=false -c diff.context=3 -c diff.algorithm=myers \
+  diff --cached -- . ':(exclude)docs/slices/*/REVIEW.signoff' | sha256sum | cut -d' ' -f1)
+if ! printf '%s' "$staged_hash" | grep -qE '^[0-9a-f]{64}$'; then
+  die "review signoff" "FAIL -- could not compute staged-diff hash; refusing to pass unmeasured"
+else
+  # Must be TRACKED, so the record survives in history rather than living untracked.
+  matched=$(git ls-files 'docs/slices/*/REVIEW.signoff' | while read -r f; do
+              grep -qF -- "$staged_hash" "$f" && echo "$f"; done)
+  if [ -n "$matched" ]; then note "review signoff" "matches staged diff ($matched)"
+  else die "review signoff" "FAIL -- no tracked docs/slices/*/REVIEW.signoff contains $staged_hash"
+  fi
+fi
+
+echo
+if [ "$fail" -ne 0 ]; then
+  echo "COMMIT BLOCKED -- a hard gate failed, a ratchet regressed, or a gate could not be measured."
+  exit 1
+fi
+echo "Gates OK."

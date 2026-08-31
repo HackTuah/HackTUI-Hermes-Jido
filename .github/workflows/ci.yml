@@ -1,0 +1,156 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  MIX_ENV: test
+
+jobs:
+  gates:
+    name: CLAUDE.md commit gates
+    runs-on: ubuntu-latest
+
+    # No postgres service here: the default suite runs with HACKTUI_START_REPO unset
+    # and never connects. DB-backed tests run in the `integration` job below.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.2"
+          otp-version: "28.1.1"
+
+      - name: Cache deps and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+
+      # Separate key: a cold PLT build takes 5-15 minutes and would make the
+      # dialyzer gate unusable without it.
+      - name: Cache Dialyzer PLT
+        uses: actions/cache@v4
+        with:
+          path: priv/plts
+          key: ${{ runner.os }}-plt-dev-otp28.1.1-ex1.19.2-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-plt-dev-otp28.1.1-ex1.19.2-
+
+      - run: mix deps.get
+
+      # --- hard gates: these pass today and must never regress ---
+      - name: Gate - format
+        run: mix format --check-formatted
+
+      - name: Gate - compile
+        run: mix compile --warnings-as-errors
+
+      - name: Gate - secret scan
+        run: |
+          if git ls-files | grep -Ei '(^|/)\.env$|\.(key|pem|pcap|pcapng|p12)$'; then
+            echo "::error::tracked secret-like files found"; exit 1
+          fi
+
+      # --- ratchet gates: compared against .claude/gate-baseline.json ---
+      # These fail today, so they are compared, not required to pass. A REGRESSION
+      # fails the build. Without this the job would be green regardless of damage.
+      - name: Gate - test ratchet
+        run: |
+          set -o pipefail
+          mix test 2>&1 | tee /tmp/test.log || true
+          grep -qE '[0-9]+ tests?, [0-9]+ failures?' /tmp/test.log || {
+            echo "::error::mix test produced no summary; refusing to score as improvement"; exit 1; }
+          now=$(grep -oE '[0-9]+ failures?' /tmp/test.log | grep -oE '^[0-9]+' | paste -sd+ | bc)
+          base=$(jq -r .test_failures .claude/gate-baseline.json)
+          echo "test failures: $now (baseline $base)"
+          [ "$now" -le "$base" ] || { echo "::error::regression $now > $base"; exit 1; }
+
+      - name: Gate - credo ratchet
+        run: |
+          MIX_ENV=dev mix credo --strict > /tmp/credo.log 2>&1 || true
+          if grep -q 'found no issues' /tmp/credo.log; then now=0; else
+            now=$(grep -oE '[0-9]+ (warnings?|refactoring opportunit(y|ies)|code readability issues?|software design suggestions?|consistency issues?)' /tmp/credo.log | grep -oE '^[0-9]+' | paste -sd+ | bc)
+          fi
+          [ -n "$now" ] || { echo "::error::credo produced no summary"; exit 1; }
+          base=$(jq -r .credo_issues .claude/gate-baseline.json)
+          echo "credo issues: $now (baseline $base)"
+          [ "$now" -le "$base" ] || { echo "::error::regression $now > $base"; exit 1; }
+
+      # The default and raw formatters work; only --format short/github throw on
+      # OTP 28's :exact_compare in dialyxir 1.4.7.
+      - name: Gate - dialyzer ratchet
+        run: |
+          MIX_ENV=dev mix dialyzer --format raw > /tmp/dz.log 2>&1 || true
+          now=$(grep -oE 'Total errors: [0-9]+' /tmp/dz.log | grep -oE '[0-9]+$' | head -1)
+          [ -n "$now" ] || { echo "::error::dialyzer produced no total"; exit 1; }
+          base=$(jq -r .dialyzer_warnings .claude/gate-baseline.json)
+          echo "dialyzer warnings: $now (baseline $base)"
+          [ "$now" -le "$base" ] || { echo "::error::regression $now > $base"; exit 1; }
+
+      # H2: baselines may only DECREASE. Without this, a regression can be hidden by
+      # editing the baseline in the same PR and nothing would notice.
+      - name: Gate - baseline may only decrease
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --depth=1 origin ${{ github.base_ref }}
+          git fetch --depth=1 origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+          old=$(git show origin/${{ github.base_ref }}:.claude/gate-baseline.json) || {
+            echo "::error::cannot read baseline on base ref -- refusing to skip"; exit 1; }
+          for k in test_failures credo_issues dialyzer_warnings; do
+            o=$(printf '%s' "$old" | jq -r ".$k"); n=$(jq -r ".$k" .claude/gate-baseline.json)
+            [ "$o" = null ] && continue
+            echo "$k: $o -> $n"
+            [ "$n" -le "$o" ] || { echo "::error::baseline $k raised $o -> $n"; exit 1; }
+          done
+
+      # --- advisory ---
+      - name: Advisory - dependency audit (13 known advisories, 6 HIGH)
+        run: mix do deps.loadpaths + deps.audit || true
+
+      - name: Advisory - hex.audit
+        run: mix hex.audit || true
+
+      - name: Advisory - sobelow (per app; umbrella unsupported at root)
+        run: for a in apps/*/; do echo "== $a"; mix sobelow --root "$a" --exit || true; done
+
+  integration:
+    name: Integration tests (DB-backed)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: hacktui
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hacktui_qualification_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      HACKTUI_DB_USER: hacktui
+      HACKTUI_DB_PASS: postgres
+      HACKTUI_DB_HOST: localhost
+      HACKTUI_DB_PORT: "5432"
+      HACKTUI_DB_NAME: hacktui_qualification_test
+      HACKTUI_START_REPO: "true"
+      HACKTUI_AGENT_BACKENDS: jido
+      HACKTUI_COLLAB_PROVIDERS: slack
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.2"
+          otp-version: "28.1.1"
+      - run: mix deps.get
+      - run: mix ecto.migrate
+      - run: mix test --include integration
+        continue-on-error: true   # 18 integration tests have never run in CI; see BACKLOG
