@@ -152,7 +152,7 @@ defmodule HacktuiHub.QueryService do
       envelope_version: 1
     }
 
-    HacktuiHub.IngestService.accept_observation(command, [])
+    HacktuiHub.Runtime.accept_observation(command, [])
   end
 
   @doc """

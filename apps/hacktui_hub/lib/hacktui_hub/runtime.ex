@@ -16,6 +16,8 @@ defmodule HacktuiHub.Runtime do
 
   alias HacktuiCore.ActorRef
   alias HacktuiCore.Commands.CreateAlert
+  alias HacktuiCore.Detection
+  alias HacktuiCore.Events.{AuditRecorded, ObservationAccepted}
 
   alias HacktuiHub.{
     AuditService,
@@ -47,9 +49,33 @@ defmodule HacktuiHub.Runtime do
       |> apply_threat_intel_defaults()
       |> enrich_observation_attrs()
 
-    with {:ok, accepted} <- IngestService.accept_observation(command, opts),
-         {:ok, audit_persistence} <- Audits.persist(repo, accepted),
-         {:ok, aggregate, event} <- DetectionService.derive_alert(accepted, opts),
+    with {:ok, accepted} <- IngestService.accept_observation(command, opts) do
+      if repo_available?(repo) do
+        persist_accepted_observation(repo, accepted, opts)
+      else
+        # Default runtime is HACKTUI_START_REPO=false. Say so rather than claiming a
+        # write happened or crashing the sensor.
+        {:ok, unpersisted_result(accepted, :skipped_no_repo)}
+      end
+    end
+  end
+
+  # An observation is always audited. It becomes an alert only when detection promotes it.
+  defp persist_accepted_observation(repo, accepted, opts) do
+    with {:ok, audit_persistence} <- Audits.persist(repo, observation_audit_event(accepted)) do
+      if Detection.promote?(accepted) do
+        promote_observation(repo, accepted, audit_persistence, opts)
+      else
+        {:ok,
+         accepted
+         |> unpersisted_result(:audited)
+         |> Map.put(:audit_persistence, audit_persistence)}
+      end
+    end
+  end
+
+  defp promote_observation(repo, accepted, audit_persistence, opts) do
+    with {:ok, aggregate, event} <- DetectionService.derive_alert(accepted, opts),
          threat_score <- threat_score(accepted, aggregate),
          {:ok, alert_result_0} <-
            persist_or_correlate_alert(repo, aggregate, event, accepted, threat_score, opts),
@@ -61,6 +87,8 @@ defmodule HacktuiHub.Runtime do
       {:ok,
        %{
          observation: accepted,
+         promoted: true,
+         persistence: :persisted,
          alert: alert_result.aggregate,
          event: alert_result.event,
          correlation: alert_result.correlation,
@@ -71,6 +99,42 @@ defmodule HacktuiHub.Runtime do
          threat_alert: threat_alert
        }}
     end
+  end
+
+  defp unpersisted_result(accepted, persistence) do
+    %{
+      observation: accepted,
+      promoted: false,
+      persistence: persistence,
+      alert: nil,
+      event: nil,
+      correlation: nil,
+      audit_persistence: nil,
+      alert_persistence: nil,
+      case_result: nil,
+      threat_score: nil,
+      threat_alert: nil
+    }
+  end
+
+  # Runtime previously passed the ObservationAccepted straight to Audits.persist/2, which
+  # only matches %AuditRecorded{} -- a guaranteed FunctionClauseError, and further proof
+  # this path had no callers.
+  defp observation_audit_event(%ObservationAccepted{} = accepted) do
+    %AuditRecorded{
+      event_id: "audit-#{accepted.event_id}",
+      audit_id: "obs-#{accepted.observation_id}",
+      actor: accepted.actor,
+      action: :observation_accepted,
+      occurred_at: accepted.accepted_at,
+      result: :accepted,
+      subject: to_string(accepted.observation_id)
+    }
+  end
+
+  defp repo_available?(repo) do
+    is_atom(repo) and Code.ensure_loaded?(repo) and
+      function_exported?(repo, :transaction, 1) and not is_nil(Process.whereis(repo))
   end
 
   @spec create_alert(struct(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -230,13 +294,14 @@ defmodule HacktuiHub.Runtime do
 
   defp normalize_threat_context(_), do: nil
 
+  # Preserves the caller's keys. This previously ran every key through
+  # String.to_existing_atom/1, so a replay fixture's metadata["sequence"] silently became
+  # metadata[:sequence] and the original lookup returned nil. Normalisation should add
+  # the derived threat_context, not rewrite the caller's data.
   defp normalize_metadata_map(metadata) when is_map(metadata) do
     threat_context = metadata |> map_get(:threat_context) |> normalize_threat_context()
 
-    metadata =
-      metadata
-      |> stringify_top_level_keys_to_atoms()
-      |> Map.drop([nil])
+    metadata = Map.drop(metadata, [nil])
 
     case threat_context do
       nil -> Map.delete(metadata, :threat_context)
@@ -245,23 +310,6 @@ defmodule HacktuiHub.Runtime do
   end
 
   defp normalize_metadata_map(_), do: %{}
-
-  defp stringify_top_level_keys_to_atoms(map) do
-    Enum.reduce(map, %{}, fn
-      {key, value}, acc when is_binary(key) ->
-        normalized_key =
-          try do
-            String.to_existing_atom(key)
-          rescue
-            ArgumentError -> key
-          end
-
-        Map.put(acc, normalized_key, value)
-
-      {key, value}, acc ->
-        Map.put(acc, key, value)
-    end)
-  end
 
   #
   # Severity / scoring

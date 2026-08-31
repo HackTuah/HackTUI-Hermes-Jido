@@ -4,7 +4,7 @@
   "_slice": "01-governance-gates",
   "test_failures": 7,
   "credo_issues": 77,
-  "dialyzer_warnings": 61,
+  "dialyzer_warnings": 44,
   "_targets": {
     "test_failures": "slice 06 drives this to 0",
     "credo_issues": "reduced opportunistically; no slice owns it yet",

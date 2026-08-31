@@ -5,7 +5,6 @@ defmodule HacktuiHub.Replay.Runner do
   alias HacktuiCore.Events.ObservationAccepted
   alias HacktuiCore.Observation.Envelope
   alias HacktuiHub.DetectionService
-  alias HacktuiHub.IngestService
   alias HacktuiHub.PurpleService
   alias HacktuiHub.Replay.Loader
 
@@ -62,7 +61,7 @@ defmodule HacktuiHub.Replay.Runner do
       |> then(&struct!(AcceptObservation, &1))
 
     command
-    |> IngestService.accept_observation(acceptance_opts(envelope, opts))
+    |> HacktuiHub.Runtime.accept_observation(acceptance_opts(envelope, opts))
     |> unwrap_acceptance!(envelope)
   end
 
@@ -148,8 +147,20 @@ defmodule HacktuiHub.Replay.Runner do
 
   defp normalize_confidence(_), do: 0.6
 
-  defp unwrap_acceptance!({:ok, accepted}, _envelope), do: accepted
-  defp unwrap_acceptance!(accepted, _envelope), do: accepted
+  defp unwrap_acceptance!({:ok, %{observation: %ObservationAccepted{} = accepted}}, _envelope),
+    do: accepted
+
+  defp unwrap_acceptance!({:ok, %ObservationAccepted{} = accepted}, _envelope), do: accepted
+
+  defp unwrap_acceptance!({:error, reason}, %Envelope{} = envelope) do
+    raise ArgumentError,
+          "replay acceptance failed for #{inspect(envelope.kind)}: #{inspect(reason)}"
+  end
+
+  defp unwrap_acceptance!(other, %Envelope{} = envelope) do
+    raise ArgumentError,
+          "unexpected replay acceptance result for #{inspect(envelope.kind)}: #{inspect(other)}"
+  end
 
   defp derive_alert!(%ObservationAccepted{} = accepted, opts) do
     accepted

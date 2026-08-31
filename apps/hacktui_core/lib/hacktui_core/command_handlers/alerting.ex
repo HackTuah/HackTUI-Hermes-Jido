@@ -5,6 +5,7 @@ defmodule HacktuiCore.CommandHandlers.Alerting do
 
   alias HacktuiCore.Aggregates.Alert
   alias HacktuiCore.Commands.{CreateAlert, TransitionAlert}
+  alias HacktuiCore.Detection
   alias HacktuiCore.Events.ObservationAccepted
 
   @spec handle(CreateAlert.t(), keyword()) :: {:ok, Alert.t(), struct()}
@@ -15,7 +16,10 @@ defmodule HacktuiCore.CommandHandlers.Alerting do
     payload = accepted.payload || %{}
 
     command = %CreateAlert{
-      alert_id: Map.fetch!(payload, "alert_id"),
+      # Derived when the payload carries no alert_id. This previously used Map.fetch!/2,
+      # which raised KeyError on every live observation -- no sensor payload has that key,
+      # only replay fixtures do.
+      alert_id: Detection.alert_id_for(accepted),
       title: derive_title(payload),
       severity: derive_severity(payload),
       observation_refs: [accepted.observation_id],
@@ -38,16 +42,13 @@ defmodule HacktuiCore.CommandHandlers.Alerting do
   defp derive_title(%{"indicator" => indicator}) when is_binary(indicator),
     do: "Replay-derived alert for #{indicator}"
 
-  defp derive_title(_payload), do: "Replay-derived alert"
+  defp derive_title(%{"summary" => summary}) when is_binary(summary) and summary != "",
+    do: summary
 
-  defp derive_severity(%{"severity" => severity}) when is_binary(severity) do
-    severity
-    |> String.downcase()
-    |> String.to_existing_atom()
-  rescue
-    ArgumentError -> :unknown
-  end
+  defp derive_title(%{summary: summary}) when is_binary(summary) and summary != "",
+    do: summary
 
-  defp derive_severity(%{severity: severity}) when is_atom(severity), do: severity
-  defp derive_severity(_payload), do: :unknown
+  defp derive_title(_payload), do: "Observation-derived alert"
+
+  defp derive_severity(payload), do: Detection.severity_of(payload)
 end

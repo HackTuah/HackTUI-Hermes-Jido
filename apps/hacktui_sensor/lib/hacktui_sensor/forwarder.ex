@@ -87,7 +87,9 @@ defmodule HacktuiSensor.Forwarder do
     state = %{
       connect_on_demand?: Keyword.get(config, :connect_on_demand?, true),
       connect_timeout: Keyword.get(config, :connect_timeout, 5_000),
-      hub_module: Keyword.get(config, :hub_module, HacktuiHub.IngestService),
+      # Runtime, not IngestService: IngestService only fills a 100-slot RAM ring
+      # buffer, so live telemetry never reached the database.
+      hub_module: Keyword.get(config, :hub_module, HacktuiHub.Runtime),
       hub_node: Keyword.get(config, :hub_node),
       retry_ms: Keyword.get(config, :retry_ms, @default_retry_ms)
     }

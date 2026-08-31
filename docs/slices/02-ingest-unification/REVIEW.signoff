@@ -1,0 +1,17 @@
+slice: 02-ingest-unification
+staged-diff-sha256: 98602a2d32c6db60d940bd137fc8a250153b786c0f9cb3f454dfc054c3e343fd
+review-rounds: 0
+verdicts: not yet reviewed
+
+Committed under explicit maintainer direction to prioritise throughput over per-slice
+review rounds for tonight's run, with adversarial review batched to the end.
+
+What this record asserts:
+  - The automated gates passed: test 7 (held at baseline), credo 77 (held),
+    dialyzer 61 -> 44 (baseline lowered), compile and format clean.
+  - 15 new tests were added and pass; the pre-existing 7 failures are unchanged.
+
+What this record does NOT assert:
+  - That any independent reviewer examined this diff. None has.
+  - That live telemetry reaches PostgreSQL end to end. The DB-backed assertion is
+    :integration-tagged and has not been run against a live database.
