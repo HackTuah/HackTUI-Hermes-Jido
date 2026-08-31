@@ -124,13 +124,23 @@ defmodule HacktuiHub.Runtime do
     %AuditRecorded{
       event_id: "audit-#{accepted.event_id}",
       audit_id: "obs-#{accepted.observation_id}",
-      actor: accepted.actor,
+      actor: normalize_actor(accepted.actor),
       action: :observation_accepted,
       occurred_at: accepted.accepted_at,
       result: :accepted,
       subject: to_string(accepted.observation_id)
     }
   end
+
+  # Collectors set actor to a plain string; Audits.audit_changeset/1 expects an ActorRef
+  # and does event.actor.id, which raised BadMapError on every live observation.
+  defp normalize_actor(%ActorRef{} = actor), do: actor
+
+  defp normalize_actor(actor) when is_binary(actor),
+    do: %ActorRef{id: actor, type: :service, role: :sensor, source: :hacktui_sensor}
+
+  defp normalize_actor(_),
+    do: %ActorRef{id: "unknown", type: :service, role: :sensor, source: :hacktui_sensor}
 
   defp repo_available?(repo) do
     is_atom(repo) and Code.ensure_loaded?(repo) and

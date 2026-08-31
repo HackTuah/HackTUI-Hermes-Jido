@@ -1,8 +1,10 @@
 defmodule HacktuiHub.IngestBuffer do
   @moduledoc """
-  OTP GenServer providing a safe, bounded ring-buffer for live telemetry.
-  This isolates telemetry state from the global BEAM heap to prevent 
-  expensive garbage collection sweeps during high-throughput ingest.
+  Bounded in-memory ring buffer of the most recent observations, for the live TUI.
+
+  This is a view cache, not storage: it holds at most `:limit` observations and its
+  contents are lost on restart. Durable state is the repo's business -- see
+  `HacktuiHub.Runtime.accept_observation/2`.
   """
   use GenServer
 

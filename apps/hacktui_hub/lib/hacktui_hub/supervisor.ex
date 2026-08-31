@@ -10,6 +10,13 @@ defmodule HacktuiHub.Supervisor do
   def init(_args) do
     children = [
       {Registry, keys: :unique, name: HacktuiHub.Registry},
+      # Previously started lazily by IngestService via GenServer.start/3 -- unlinked,
+      # unsupervised, and silently re-created empty after any crash.
+      {HacktuiHub.IngestBuffer, limit: 100},
+      # Previously in no supervision tree at all, so :threat_intel_keywords never
+      # existed and Indexer.lookup/1 raised on every observation -- swallowed by a
+      # blanket rescue in IngestService.
+      HacktuiHub.ThreatIntel.Indexer,
       {Task.Supervisor, name: HacktuiHub.TaskSupervisor},
       {Task.Supervisor, name: HacktuiHub.IngestSupervisor},
       {Task.Supervisor, name: HacktuiHub.DetectionSupervisor},

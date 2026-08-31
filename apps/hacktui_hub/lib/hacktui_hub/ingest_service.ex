@@ -20,10 +20,6 @@ defmodule HacktuiHub.IngestService do
       {:ok, %ObservationAccepted{} = accepted} ->
         accepted = enrich_accepted(accepted, command)
 
-        # Safely route the live stream to the GenServer Ring Buffer
-        # instead of blowing out the literal memory allocator.
-        ensure_buffer_started()
-
         try do
           IngestBuffer.insert(accepted)
         catch
@@ -39,8 +35,6 @@ defmodule HacktuiHub.IngestService do
 
   @spec recent_observations() :: [ObservationAccepted.t()]
   def recent_observations do
-    ensure_buffer_started()
-
     try do
       IngestBuffer.get_recent()
     catch
@@ -50,8 +44,6 @@ defmodule HacktuiHub.IngestService do
 
   @spec reset_recent_observations() :: :ok
   def reset_recent_observations do
-    ensure_buffer_started()
-
     try do
       IngestBuffer.clear()
     catch
@@ -59,18 +51,6 @@ defmodule HacktuiHub.IngestService do
     end
 
     :ok
-  end
-
-  defp ensure_buffer_started do
-    if is_nil(Process.whereis(IngestBuffer)) do
-      # CRITICAL FIX: Pass the properly formatted Map state %{limit: 100, items: []} 
-      # instead of a keyword list [limit: 100] so handle_cast matches correctly!
-      case GenServer.start(IngestBuffer, %{limit: 100, items: []}, name: IngestBuffer) do
-        {:ok, _} -> :ok
-        {:error, {:already_started, _}} -> :ok
-        _ -> :ok
-      end
-    end
   end
 
   defp ingest_opts(%AcceptObservation{} = command, opts) do

@@ -45,7 +45,9 @@ if config_env() != :test do
     database: System.get_env("HACKTUI_DB_NAME", "hacktui_qualification_test")
   ]
 
-  if config_env() == :prod do
+  # Guarded: the hacktui_sensor release does not include hacktui_store, and this file
+  # is evaluated by the release config provider against that release's code paths only.
+  if config_env() == :prod and Code.ensure_loaded?(HacktuiStore.RuntimeConfig) do
     errors = HacktuiStore.RuntimeConfig.production_repo_config_errors(start_repo, repo_config)
 
     if errors != [] do

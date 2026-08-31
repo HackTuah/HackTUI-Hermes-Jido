@@ -14,10 +14,14 @@ defmodule HacktuiSensor.Collectors.Network do
 
   use GenServer
 
+  require Logger
+
   alias HacktuiCore.Commands.AcceptObservation
   alias HacktuiSensor.Forwarder
 
   @restart_delay_ms 2_000
+  @max_restart_delay_ms 60_000
+  @max_restart_attempts 5
 
   @error_prefixes [
     "tshark:",
@@ -129,9 +133,21 @@ defmodule HacktuiSensor.Collectors.Network do
         last -> "capture process exited with status #{status} (#{last})"
       end
 
-    send(self(), {:report_error, msg})
-    Process.send_after(self(), :start_capture, @restart_delay_ms)
-    {:noreply, %{state | port: nil, buffer: "", last_error: msg}}
+    failures = Map.get(state, :consecutive_failures, 0) + 1
+
+    state =
+      %{state | port: nil, buffer: "", last_error: msg}
+      |> Map.put(:consecutive_failures, failures)
+
+    if failures > @max_restart_attempts do
+      # Stop retrying. One summary observation instead of an unbounded error storm.
+      send(self(), {:report_error, "#{msg}; giving up after #{failures} consecutive failures"})
+      {:noreply, Map.put(state, :enabled?, false)}
+    else
+      send(self(), {:report_error, msg})
+      Process.send_after(self(), :start_capture, restart_delay_ms(failures))
+      {:noreply, state}
+    end
   end
 
   @impl true
@@ -141,7 +157,18 @@ defmodule HacktuiSensor.Collectors.Network do
   end
 
   @impl true
-  def handle_info(_msg, state), do: {:noreply, state}
+  def handle_info(msg, state) do
+    Logger.warning(
+      "[hacktui_sensor] unmatched message in #{inspect(__MODULE__)}: #{inspect(msg)}"
+    )
+
+    {:noreply, state}
+  end
+
+  # Exponential backoff, capped. Attempt n waits @restart_delay_ms * 2^(n-1).
+  defp restart_delay_ms(failures) do
+    min(@restart_delay_ms * Integer.pow(2, failures - 1), @max_restart_delay_ms)
+  end
 
   defp tshark_path, do: System.find_executable("tshark")
 
@@ -390,8 +417,8 @@ defmodule HacktuiSensor.Collectors.Network do
 
     base =
       "[#{proto}] #{src} -> #{dst}" <>
-        if(site, do: " (#{site})", else: "") <>
-        if(service, do: " | #{service}", else: "") <>
+        if(site == "", do: "", else: " (#{site})") <>
+        if(service == "", do: "", else: " | #{service}") <>
         port_text
 
     request =

@@ -24,7 +24,10 @@ defmodule HacktuiSensor.MixProject do
 
   defp deps do
     [
-      {:hacktui_core, in_umbrella: true}
+      {:hacktui_core, in_umbrella: true},
+      # Forwarder's default hub_module is HacktuiHub.Runtime. Without this the .app
+      # omits hacktui_hub and the standalone release dies at boot.
+      {:hacktui_hub, in_umbrella: true}
     ]
   end
 end

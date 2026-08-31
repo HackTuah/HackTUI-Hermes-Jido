@@ -35,11 +35,17 @@ defmodule HacktuiSensor do
     ]
   end
 
+  defp env_enabled?(var) do
+    System.get_env(var) in ["1", "true", "TRUE"]
+  end
+
   defp network_opts do
     app_config = Application.get_env(:hacktui_sensor, __MODULE__, [])
 
     [
-      enabled?: Keyword.get(app_config, :network_enabled, true),
+      # Opt-in: packet capture is a privileged, host-wide side effect. Enable with
+      # HACKTUI_SENSOR_NETWORK=1 or config :hacktui_sensor, HacktuiSensor, network_enabled: true
+      enabled?: Keyword.get(app_config, :network_enabled, env_enabled?("HACKTUI_SENSOR_NETWORK")),
       interface: Keyword.get(app_config, :network_interface, "any")
     ]
   end
@@ -56,7 +62,9 @@ defmodule HacktuiSensor do
     app_config = Application.get_env(:hacktui_sensor, __MODULE__, [])
 
     [
-      enabled?: Keyword.get(app_config, :journald_enabled, true),
+      # Opt-in: streams the host journal. HACKTUI_SENSOR_JOURNALD=1 to enable.
+      enabled?:
+        Keyword.get(app_config, :journald_enabled, env_enabled?("HACKTUI_SENSOR_JOURNALD")),
       lines: Keyword.get(app_config, :journald_lines, @default_journal_lines)
     ]
   end
@@ -64,6 +72,7 @@ defmodule HacktuiSensor do
   # --- Nested Collector Modules ---
 
   defmodule Collectors.ProcessSignals do
+    require Logger
     @moduledoc false
     use GenServer
 
@@ -150,10 +159,13 @@ defmodule HacktuiSensor do
   end
 
   defmodule Collectors.Journald do
+    require Logger
     @moduledoc false
     use GenServer
 
-    @journalctl_path System.find_executable("journalctl")
+    # Resolved at runtime. As a module attribute this baked the build host's
+    # filesystem into the release: a container without systemd got nil forever.
+    defp journalctl_path, do: System.find_executable("journalctl")
 
     def start_link(opts \\ []) do
       GenServer.start_link(__MODULE__, opts)
@@ -203,11 +215,17 @@ defmodule HacktuiSensor do
       {:noreply, %{state | port: nil, buffer: ""}}
     end
 
-    def handle_info(_msg, state), do: {:noreply, state}
+    def handle_info(msg, state) do
+      Logger.warning(
+        "[hacktui_sensor] unmatched message in #{inspect(__MODULE__)}: #{inspect(msg)}"
+      )
+
+      {:noreply, state}
+    end
 
     defp start_journal_stream(%{enabled?: true} = state) do
       cond do
-        is_nil(@journalctl_path) ->
+        is_nil(journalctl_path()) ->
           state
 
         true ->
@@ -220,7 +238,7 @@ defmodule HacktuiSensor do
 
           port =
             Port.open(
-              {:spawn_executable, @journalctl_path},
+              {:spawn_executable, journalctl_path()},
               [:binary, :exit_status, :stderr_to_stdout, args: args]
             )
 
