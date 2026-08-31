@@ -508,12 +508,12 @@ defmodule HacktuiSensor.Collectors.Network do
         "high"
 
       String.contains?(info_down, "password") or
-          String.contains?(info_down, "login") or
+        String.contains?(info_down, "login") or
           String.contains?(info_down, "admin") ->
         "high"
 
       String.contains?(site_down, "auth") or
-          String.contains?(site_down, "login") or
+        String.contains?(site_down, "login") or
           String.contains?(site_down, "admin") ->
         "medium"
 

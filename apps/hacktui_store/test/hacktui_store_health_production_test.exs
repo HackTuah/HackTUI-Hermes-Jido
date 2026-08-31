@@ -38,7 +38,9 @@ defmodule HacktuiStore.HealthProductionTest do
     status = Health.status()
 
     assert status.production_configuration_ready? == false
+
     assert "HACKTUI_DB_NAME cannot use the qualification/demo database" in status.repo_configuration_errors
+
     assert "HACKTUI_DB_PASS cannot use the default demo password" in status.repo_configuration_errors
   end
 

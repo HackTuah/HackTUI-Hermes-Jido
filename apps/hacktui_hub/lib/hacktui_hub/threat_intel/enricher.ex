@@ -4,12 +4,17 @@ defmodule HacktuiHub.ThreatIntel.Enricher do
   alias HacktuiHub.ThreatIntel.Indexer
 
   def enrich(%ObservationAccepted{payload: payload, metadata: metadata} = obs) do
-    raw_text = to_string(payload["raw_message"] || payload[:raw_message] || payload["summary"] || payload[:summary] || "")
+    raw_text =
+      to_string(
+        payload["raw_message"] || payload[:raw_message] || payload["summary"] || payload[:summary] ||
+          ""
+      )
 
     case Indexer.lookup(raw_text) do
       {_keyword, description} ->
         updated_metadata = Map.put(metadata || %{}, "threat_context", description)
         %ObservationAccepted{obs | metadata: updated_metadata}
+
       nil ->
         obs
     end

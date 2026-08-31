@@ -268,7 +268,9 @@ defmodule HacktuiHub.Runtime do
   #
 
   defp normalize_severity(nil), do: nil
-  defp normalize_severity(severity) when severity in [:low, :medium, :high, :critical], do: severity
+
+  defp normalize_severity(severity) when severity in [:low, :medium, :high, :critical],
+    do: severity
 
   defp normalize_severity(severity) when is_binary(severity) do
     case String.downcase(severity) do
@@ -472,10 +474,16 @@ defmodule HacktuiHub.Runtime do
           |> Map.put_new("first_seen_at", now)
           |> Map.put("last_seen_at", now)
           |> Map.put("last_event_id", Map.get(event, :event_id))
-          |> Map.put("threat_score", max(existing_int(existing_meta["threat_score"]), threat_score))
+          |> Map.put(
+            "threat_score",
+            max(existing_int(existing_meta["threat_score"]), threat_score)
+          )
           |> Map.put("deduplicated", deduplicated?)
           |> Map.put("hit_count", existing_int(existing_meta["hit_count"]) + 1)
-          |> Map.put("observation_refs", merged_observation_refs(existing_meta, aggregate, observation))
+          |> Map.put(
+            "observation_refs",
+            merged_observation_refs(existing_meta, aggregate, observation)
+          )
           |> maybe_put("site", observation |> observation_payload() |> map_get(:site))
           |> maybe_put("service", observation |> observation_payload() |> map_get(:service))
           |> maybe_put("observation_kind", observation_kind(observation))
@@ -518,7 +526,8 @@ defmodule HacktuiHub.Runtime do
                %{
                  alert_result
                  | aggregate: alert_schema_to_aggregate(updated_row),
-                   persistence: Map.put(alert_result.persistence, :case_metadata_update, updated_row),
+                   persistence:
+                     Map.put(alert_result.persistence, :case_metadata_update, updated_row),
                    correlation:
                      Map.merge(alert_result.correlation, %{
                        linked_case_id: case_id
@@ -787,7 +796,8 @@ defmodule HacktuiHub.Runtime do
   # Threat-intel generated alerts
   #
 
-  defp maybe_create_threat_alert(%{metadata: metadata} = observation, opts) when is_map(metadata) do
+  defp maybe_create_threat_alert(%{metadata: metadata} = observation, opts)
+       when is_map(metadata) do
     case normalize_threat_context(map_get(metadata, :threat_context)) do
       nil ->
         {:ok, nil}
@@ -871,11 +881,17 @@ defmodule HacktuiHub.Runtime do
   defp observation_kind(_), do: nil
 
   defp observation_metadata(nil), do: %{}
-  defp observation_metadata(observation) when is_map(observation), do: map_get(observation, :metadata) || %{}
+
+  defp observation_metadata(observation) when is_map(observation),
+    do: map_get(observation, :metadata) || %{}
+
   defp observation_metadata(_), do: %{}
 
   defp observation_payload(nil), do: %{}
-  defp observation_payload(observation) when is_map(observation), do: map_get(observation, :payload) || %{}
+
+  defp observation_payload(observation) when is_map(observation),
+    do: map_get(observation, :payload) || %{}
+
   defp observation_payload(_), do: %{}
 
   defp to_string_or_nil(nil), do: nil

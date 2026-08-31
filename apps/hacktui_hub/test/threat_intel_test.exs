@@ -25,9 +25,11 @@ defmodule HacktuiHub.ThreatIntelTest do
       metadata: %{},
       payload: %{"summary" => "credential access", "raw_message" => "mimikatz executed"}
     }
+
     enriched = Enricher.enrich(observation)
 
-    assert %{metadata: %{threat_context: %{keyword: "mimikatz", severity: :high, source: "test"}}} = enriched
+    assert %{metadata: %{threat_context: %{keyword: "mimikatz", severity: :high, source: "test"}}} =
+             enriched
   end
 
   test "ingestion remains resilient when datasets are unavailable" do
@@ -40,6 +42,7 @@ defmodule HacktuiHub.ThreatIntelTest do
       metadata: %{},
       payload: %{"raw_message" => "benign", "summary" => "normal"}
     }
+
     enriched = Enricher.enrich(observation, dataset_path: "/missing/path.json")
 
     assert enriched.metadata == %{}

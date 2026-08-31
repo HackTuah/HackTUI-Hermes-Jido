@@ -4,7 +4,16 @@ defmodule HacktuiCore.Events.ObservationAccepted do
   """
 
   @enforce_keys [:event_id, :observation_id, :source, :accepted_at, :actor]
-  defstruct [:event_id, :observation_id, :source, :kind, :payload, :metadata, :accepted_at, :actor]
+  defstruct [
+    :event_id,
+    :observation_id,
+    :source,
+    :kind,
+    :payload,
+    :metadata,
+    :accepted_at,
+    :actor
+  ]
 
   @type t :: %__MODULE__{
           event_id: String.t(),

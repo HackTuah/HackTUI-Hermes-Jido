@@ -36,7 +36,8 @@ defmodule HacktuiHub.Health do
   end
 
   defp ready?(hub, store, collab, agent) do
-    hub_ready?(hub) and component_ready?(store) and component_ready?(collab) and component_ready?(agent)
+    hub_ready?(hub) and component_ready?(store) and component_ready?(collab) and
+      component_ready?(agent)
   end
 
   defp component_ready?(%{mode: :safe_no_repo}), do: true

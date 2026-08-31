@@ -56,9 +56,15 @@ defmodule HacktuiAgent.MCP.Stdio do
 
   defp read_headers(buffer) do
     case IO.binread(:stdio, 1) do
-      :eof when buffer == "" -> :eof
-      :eof -> {:error, :unexpected_eof}
-      {:error, reason} -> {:error, reason}
+      :eof when buffer == "" ->
+        :eof
+
+      :eof ->
+        {:error, :unexpected_eof}
+
+      {:error, reason} ->
+        {:error, reason}
+
       byte ->
         next = buffer <> byte
 

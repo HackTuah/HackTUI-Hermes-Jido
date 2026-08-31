@@ -197,7 +197,10 @@ defmodule HacktuiAgent.MCP.Server do
   end
 
   defp normalize_argument_value(_key, value) when is_map(value), do: to_json_value(value)
-  defp normalize_argument_value(_key, value) when is_list(value), do: Enum.map(value, &to_json_value/1)
+
+  defp normalize_argument_value(_key, value) when is_list(value),
+    do: Enum.map(value, &to_json_value/1)
+
   defp normalize_argument_value(_key, value), do: value
 
   defp input_schema(:get_latest_alerts) do

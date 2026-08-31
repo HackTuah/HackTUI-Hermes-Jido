@@ -32,7 +32,7 @@ defmodule HacktuiAgent.InvestigationFlowDbIntegrationTest do
              %CaseTimelineEntry{entry_type: "case_opened", occurred_at: opened_at},
              %CaseTimelineEntry{entry_type: "alert_linked", occurred_at: linked_at}
            ] =
-             Repo.all(from entry in CaseTimelineEntry, order_by: [asc: entry.occurred_at])
+             Repo.all(from(entry in CaseTimelineEntry, order_by: [asc: entry.occurred_at]))
 
     assert inserted_at == ~U[2026-03-07 13:00:00.000000Z]
     assert updated_at == ~U[2026-03-07 13:00:00.000000Z]

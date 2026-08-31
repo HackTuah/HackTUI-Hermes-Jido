@@ -79,6 +79,7 @@ defmodule HacktuiAgent.MCPServerTest do
     assert args[:target] == "host-42"
 
     assert response["result"]["isError"] == false
+
     assert response["result"]["structuredContent"] == %{
              "received" => "contain",
              "case_id" => "case-7",

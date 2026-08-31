@@ -42,8 +42,11 @@ defmodule HacktuiHub.Replay.Loader do
 
   defp parse_received_at(value) do
     case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> datetime
-      {:error, reason} -> raise ArgumentError, "invalid received_at #{inspect(value)}: #{inspect(reason)}"
+      {:ok, datetime, _offset} ->
+        datetime
+
+      {:error, reason} ->
+        raise ArgumentError, "invalid received_at #{inspect(value)}: #{inspect(reason)}"
     end
   end
 end

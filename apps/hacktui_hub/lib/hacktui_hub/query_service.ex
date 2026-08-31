@@ -283,20 +283,22 @@ defmodule HacktuiHub.QueryService do
         |> String.downcase()
 
       metadata = Map.get(obs, :metadata, %{}) || %{}
+
       collector =
         Map.get(metadata, :collector) ||
           Map.get(metadata, "collector") ||
           ""
-        |> to_string()
-        |> String.downcase()
+          |> to_string()
+          |> String.downcase()
 
       payload = Map.get(obs, :payload, %{}) || %{}
+
       summary =
         Map.get(payload, "summary") ||
           Map.get(payload, :summary) ||
           ""
-        |> to_string()
-        |> String.downcase()
+          |> to_string()
+          |> String.downcase()
 
       String.contains?(kind, "jido") or
         String.contains?(kind, "agent") or

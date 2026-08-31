@@ -495,7 +495,8 @@ defmodule HacktuiTui do
   end
 
   defp safe_health do
-    if Code.ensure_loaded?(HacktuiHub.Health) and function_exported?(HacktuiHub.Health, :status, 0) do
+    if Code.ensure_loaded?(HacktuiHub.Health) and
+         function_exported?(HacktuiHub.Health, :status, 0) do
       try do
         HacktuiHub.Health.status()
       rescue

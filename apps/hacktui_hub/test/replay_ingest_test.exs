@@ -26,7 +26,9 @@ defmodule HacktuiHub.ReplayIngestTest do
       actor: "hacktui_sensor"
     }
 
-    assert {:ok, %ObservationAccepted{} = accepted} = IngestService.accept_observation(command, [])
+    assert {:ok, %ObservationAccepted{} = accepted} =
+             IngestService.accept_observation(command, [])
+
     assert accepted.kind == "process_signals"
     assert accepted.payload["message_queue_len"] == 0
 
@@ -43,11 +45,16 @@ defmodule HacktuiHub.ReplayIngestTest do
     assert [%ObservationAccepted{} = first, %ObservationAccepted{} = second] = results
 
     assert Enum.map(results, & &1.observation_id) == [first.observation_id, second.observation_id]
+
     assert Enum.map(results, & &1.event_id) == [
              "replay-demo.case-1-alert_observed-1",
              "replay-demo.case-1-alert_observed-2"
            ]
-    assert Enum.map(results, & &1.accepted_at) == [~U[2026-03-07 13:00:00Z], ~U[2026-03-07 13:00:10Z]]
+
+    assert Enum.map(results, & &1.accepted_at) == [
+             ~U[2026-03-07 13:00:00Z],
+             ~U[2026-03-07 13:00:10Z]
+           ]
 
     assert %ObservationAccepted{
              source: "demo.case-1",

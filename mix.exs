@@ -11,7 +11,6 @@ defmodule HacktuiUmbrella.MixProject do
       deps: []
     ]
   end
-  
 
   defp aliases do
     [

@@ -16,16 +16,28 @@ defmodule HacktuiStore.RuntimeConfig do
     |> require_value(repo_config, :username, "HACKTUI_DB_USER must be set")
     |> require_value(repo_config, :password, "HACKTUI_DB_PASS must be set")
     |> require_value(repo_config, :hostname, "HACKTUI_DB_HOST must be set")
-    |> reject_default(repo_config, :database, @qualification_database,
+    |> reject_default(
+      repo_config,
+      :database,
+      @qualification_database,
       "HACKTUI_DB_NAME cannot use the qualification/demo database"
     )
-    |> reject_default(repo_config, :username, @default_username,
+    |> reject_default(
+      repo_config,
+      :username,
+      @default_username,
       "HACKTUI_DB_USER cannot use the default demo username"
     )
-    |> reject_default(repo_config, :password, @default_password,
+    |> reject_default(
+      repo_config,
+      :password,
+      @default_password,
       "HACKTUI_DB_PASS cannot use the default demo password"
     )
-    |> reject_default(repo_config, :hostname, @default_hostname,
+    |> reject_default(
+      repo_config,
+      :hostname,
+      @default_hostname,
       "HACKTUI_DB_HOST cannot default to localhost in production"
     )
     |> Enum.reverse()
@@ -36,7 +48,9 @@ defmodule HacktuiStore.RuntimeConfig do
   end
 
   defp require_repo_enabled(errors, true), do: errors
-  defp require_repo_enabled(errors, false), do: ["HACKTUI_START_REPO must be enabled in production" | errors]
+
+  defp require_repo_enabled(errors, false),
+    do: ["HACKTUI_START_REPO must be enabled in production" | errors]
 
   defp require_value(errors, repo_config, key, message) do
     case Keyword.get(repo_config, key) do

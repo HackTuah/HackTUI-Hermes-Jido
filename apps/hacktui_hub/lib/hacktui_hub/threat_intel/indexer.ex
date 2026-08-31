@@ -12,13 +12,22 @@ defmodule HacktuiHub.ThreatIntel.Indexer do
 
   def lookup(text) when is_binary(text) do
     text_lower = String.downcase(text)
-    
+
     :ets.safe_fixtable(@table_name, true)
-    result = :ets.foldl(fn {keyword, desc}, acc ->
-      if acc == nil and String.contains?(text_lower, String.downcase(keyword)), do: {keyword, desc}, else: acc
-    end, nil, @table_name)
+
+    result =
+      :ets.foldl(
+        fn {keyword, desc}, acc ->
+          if acc == nil and String.contains?(text_lower, String.downcase(keyword)),
+            do: {keyword, desc},
+            else: acc
+        end,
+        nil,
+        @table_name
+      )
+
     :ets.safe_fixtable(@table_name, false)
-    
+
     result
   end
 
@@ -39,7 +48,7 @@ defmodule HacktuiHub.ThreatIntel.Indexer do
       {"apparmor=\"denied\"", "Process Security Violation"},
       {"nmap", "Network Scanning Activity"}
     ]
-    
+
     Enum.each(defaults, fn {k, v} -> :ets.insert(@table_name, {k, v}) end)
     Logger.info("[hacktui_intel] Safe ETS indexer loaded to prevent memory crashes.")
     {:noreply, state}

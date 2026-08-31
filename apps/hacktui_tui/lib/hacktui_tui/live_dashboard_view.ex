@@ -85,7 +85,10 @@ defmodule HacktuiTui.LiveDashboardView do
       apply_style(String.duplicate("─", width), @fg_dim),
       apply_style(truncate_plain(query <> focus, width), @fg_white),
       apply_style(
-        truncate_plain(" q quit | tab cycle | j/k move | / search | enter apply | esc close ", width),
+        truncate_plain(
+          " q quit | tab cycle | j/k move | / search | enter apply | esc close ",
+          width
+        ),
         @fg_base
       )
     ]
@@ -415,7 +418,7 @@ defmodule HacktuiTui.LiveDashboardView do
 
     hot_sites =
       flows
-      |> Enum.filter(&(present?(&1.site)))
+      |> Enum.filter(&present?(&1.site))
       |> Enum.frequencies_by(& &1.site)
       |> Enum.sort_by(fn {_k, v} -> -v end)
       |> Enum.take(4)
@@ -440,11 +443,17 @@ defmodule HacktuiTui.LiveDashboardView do
         ""
       ] ++
         [" hot sites:"] ++
-        Enum.map(hot_sites, fn {site, count} -> "  #{truncate_plain(site, max(inner - 8, 1))} x#{count}" end) ++
+        Enum.map(hot_sites, fn {site, count} ->
+          "  #{truncate_plain(site, max(inner - 8, 1))} x#{count}"
+        end) ++
         ["", " services:"] ++
-        Enum.map(hot_services, fn {service, count} -> "  #{truncate_plain(to_string(service), max(inner - 8, 1))} x#{count}" end) ++
+        Enum.map(hot_services, fn {service, count} ->
+          "  #{truncate_plain(to_string(service), max(inner - 8, 1))} x#{count}"
+        end) ++
         ["", " destinations:"] ++
-        Enum.map(top_dests, fn {label, count} -> "  #{truncate_plain(label, max(inner - 8, 1))} x#{count}" end)
+        Enum.map(top_dests, fn {label, count} ->
+          "  #{truncate_plain(label, max(inner - 8, 1))} x#{count}"
+        end)
 
     lines
     |> Enum.map(&apply_style(truncate_plain(&1, inner), @fg_base))
@@ -466,7 +475,9 @@ defmodule HacktuiTui.LiveDashboardView do
 
       [
         " " <> sev_dot <> " " <> pad_plain(left, 18) <> apply_style(" ─┐", @fg_cyan),
-        " " <> String.duplicate(" ", 20) <> apply_style(" ├─> ", @fg_cyan) <>
+        " " <>
+          String.duplicate(" ", 20) <>
+          apply_style(" ├─> ", @fg_cyan) <>
           truncate_rendered("#{service} → #{right} #{count}", max(inner - 26, 1))
       ]
     end)
@@ -718,7 +729,9 @@ defmodule HacktuiTui.LiveDashboardView do
         count: length(entries)
       }
     end)
-    |> Enum.sort_by(fn row -> {-severity_rank(row.severity), -row.count, row.service || "", row.dst || ""} end)
+    |> Enum.sort_by(fn row ->
+      {-severity_rank(row.severity), -row.count, row.service || "", row.dst || ""}
+    end)
   end
 
   defp severity_rank(sev) do

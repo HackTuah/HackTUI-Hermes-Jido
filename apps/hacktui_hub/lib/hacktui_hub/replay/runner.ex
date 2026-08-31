@@ -73,10 +73,12 @@ defmodule HacktuiHub.Replay.Runner do
   defp ensure_observation_contract(command, %Envelope{} = envelope) when is_map(command) do
     payload = command.payload || %{}
     summary = payload_value(payload, :summary) || fallback_summary(envelope)
+
     fingerprint =
       payload_value(payload, :fingerprint) ||
         metadata_value(envelope.metadata, :fingerprint) ||
         command.observation_id
+
     raw_message = payload_value(payload, :raw_message) || summary
     severity = normalize_severity(payload_value(payload, :severity) || :low)
     confidence = normalize_confidence(payload_value(payload, :confidence) || 0.6)
@@ -117,7 +119,8 @@ defmodule HacktuiHub.Replay.Runner do
       "replay observation"
   end
 
-  defp normalize_severity(severity) when severity in [:low, :medium, :high, :critical], do: severity
+  defp normalize_severity(severity) when severity in [:low, :medium, :high, :critical],
+    do: severity
 
   defp normalize_severity(severity) when is_binary(severity) do
     severity
@@ -262,4 +265,3 @@ defmodule HacktuiHub.Replay.Runner do
   defp normalize_metadata(nil), do: %{}
   defp normalize_metadata(metadata) when is_map(metadata), do: metadata
 end
-

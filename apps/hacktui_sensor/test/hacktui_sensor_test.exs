@@ -15,7 +15,8 @@ defmodule HacktuiSensorTest do
     children = Supervisor.which_children(HacktuiSensor.CollectorsSupervisor)
     assert Enum.any?(children, fn {_id, pid, _type, _modules} -> is_pid(pid) end)
 
-    assert %{hub_node: nil, hub_module: HacktuiHub.IngestService} = :sys.get_state(HacktuiSensor.Forwarder)
+    assert %{hub_node: nil, hub_module: HacktuiHub.IngestService} =
+             :sys.get_state(HacktuiSensor.Forwarder)
 
     assert_eventually(fn ->
       snapshot = QueryService.live_dashboard_snapshot()
