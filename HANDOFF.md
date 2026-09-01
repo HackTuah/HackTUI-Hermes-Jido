@@ -3,7 +3,7 @@
 Rolling state for CLAUDE.md §6. Update at the end of every slice and before any
 `/compact`.
 
-**Last updated:** 2026-09-01, end of slice 08.
+**Last updated:** 2026-09-01, end of slice 10.
 
 ## Where things stand
 
@@ -20,8 +20,8 @@ hidden — see `.claude/gate-baseline.json` and
 | compile `--warnings-as-errors` | pass — hard-blocking |
 | format `--check-formatted` | pass — hard-blocking |
 | secret scan (corrected pattern) | pass — hard-blocking |
-| test | **7 failures** of 168 — ratchet. Six have never passed in any commit; the seventh is a timing flake |
-| credo `--strict` | **77 issues** — ratchet |
+| test | **2 failures** of 171 — ratchet. One is an unexecutable read-model query needing a schema decision; one is an environment-dependent timing flake |
+| credo `--strict` | **76 issues** — ratchet |
 | dialyzer | **43 warnings** — ratchet (`--format raw`; only `short`/`github` formatters throw) |
 | deps.audit | **12 advisories / 5 packages** — advisory, no ratchet |
 | hex.audit | **20 advisories / 6 packages** (superset; incl. `hpax` HIGH) — advisory, no ratchet |
@@ -51,7 +51,9 @@ section 4 still forbids `--no-verify`, `git -C`, `git stash`, and quiet flags.
 | 05 | mcp-conformance-and-boundary | `09c42e9` |
 | 06 | decision-integrity (+ follow-up) | `3b94fdf`, `25f9764` |
 | 07 | mcp-hardening | `2221287` |
-| 08 | egress-funnel-and-retractions | this commit |
+| 08 | egress-funnel-and-retractions | `e075056` |
+| 09 | threat-intel | `e488e76` |
+| 10 | contracts-and-behaviours | this commit |
 
 **Renumbering:** the original plan had 05 = data-integrity and 06 = threat-intel. Review
 established the MCP boundary was more urgent, so the order became 05 = MCP conformance,
@@ -61,13 +63,21 @@ is what unblocks the last of the failing tests. Slice-02 and -03 documents that 
 
 ## Next
 
-**Slice 09 — ThreatIntel.** Its `threat_context` still has incompatible shapes across
-four modules, and slice 03 supervising the Indexer made `Enricher` start writing a
-string-keyed binary that nothing consumes. Two of the seven failing tests are here.
+**Slice 11 — the read-model schema decision.** `ReadModels.alert_queue_query/0` selects
+`entry_type` and `payload` from `AuditEvent`, which declares neither, so it cannot
+execute — and it is a second, drifted definition of the alert queue that `QueryService`
+already implements inline. Either add the columns or delete the dead parallel model. That
+is the last non-flake test failure.
 
-Then: correlation lost-update race and missing indexes; packaging and Hex metadata;
-truthfulness pass over the remaining false doc claims; DARPA artifacts (NOVELTY.md,
-evaluation methodology, SBOM, responsible-use).
+Then: correlation lost-update race and missing indexes; the sensor timing flake (needs an
+injected clock, not a longer sleep); packaging and Hex metadata; a truthfulness pass over
+the remaining false doc claims; DARPA artifacts (NOVELTY.md, evaluation methodology,
+SBOM, responsible-use).
+
+**Highest-value open security items**, all in BACKLOG.md: `PrivacyMask` recognises only
+RFC1918/loopback IPv4 so the egress funnel masks little in practice; `safe_call` returns
+raw exception text to unauthenticated callers; derived `alert_id` collides across VM
+restarts.
 
 ## Review status
 

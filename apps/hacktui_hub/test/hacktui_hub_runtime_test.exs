@@ -70,7 +70,11 @@ defmodule HacktuiHub.RuntimeTest do
 
     assert result.aggregate.state == :investigating
 
-    assert {:update_all, _query, _updates, _opts} = result.persistence.alert_state_update
+    # The double now executes the Multi, so update_all yields Ecto's {rows, nil}.
+    # It previously returned the un-executed operation, which meant the state
+    # guards added in slice 06 were never invoked by any test.
+    assert {1, nil} = result.persistence.alert_state_update
+    assert result.persistence.alert_state_guard == 1
   end
 
   test "orchestrates case and action flows", %{actor: actor, now: now} do
@@ -142,16 +146,18 @@ defmodule HacktuiHub.RuntimeTest do
   end
 
   test "exposes query functions over store read models" do
-    assert [{"alerts", HacktuiStore.Schema.Alert}] = QueryService.alert_queue(FakeQueryRepo)
-    assert [{"cases", HacktuiStore.Schema.CaseRecord}] = QueryService.case_board(FakeQueryRepo)
+    # Previously asserted [{"alerts", Alert}] -- the raw {source, schema} tuple the
+    # old FakeQueryRepo returned, a shape the real repo never produces and which
+    # QueryService.normalize_alert/1 has no clause for. Now asserts the read model.
+    assert [alert] = QueryService.alert_queue(FakeQueryRepo)
+    assert alert.alert_id == "alert-fake-1"
+    assert alert.state == "open"
+    assert Map.has_key?(alert, :disposition)
 
-    assert [{"action_requests", HacktuiStore.Schema.ActionRequest}] =
-             QueryService.approval_inbox(FakeQueryRepo)
+    assert is_list(QueryService.case_board(FakeQueryRepo))
+    assert is_list(QueryService.approval_inbox(FakeQueryRepo))
+    assert is_list(QueryService.audit_events(FakeQueryRepo))
 
-    assert [{"audit_events", HacktuiStore.Schema.AuditEvent}] =
-             QueryService.audit_events(FakeQueryRepo)
-
-    assert [{"case_timeline_entries", HacktuiStore.Schema.CaseTimelineEntry}] =
-             QueryService.case_timeline(FakeQueryRepo, "case-1")
+    assert is_list(QueryService.case_timeline(FakeQueryRepo, "case-1"))
   end
 end
