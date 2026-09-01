@@ -12,7 +12,7 @@ defmodule HacktuiTui.Workflows.AlertQueue do
       name: :alert_queue,
       title: "Alert Queue",
       read_model: :alert_queue,
-      columns: [:alert_id, :title, :severity, :state, :inserted_at],
+      columns: [:alert_id, :title, :severity, :state, :disposition, :inserted_at],
       command_classes: [:observe, :curate],
       empty_state: "No alerts are currently queued."
     }

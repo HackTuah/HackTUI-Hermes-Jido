@@ -38,8 +38,9 @@ No changeset declares a `unique_constraint`, so a concurrent duplicate raises
 
 1. Return `disposition` from both `normalize_alert/1` clauses.
 2. Derive both normalizers from `AlertLifecycle.states/0` and `dispositions/0` at compile
-   time, so the domain is the single source of truth and an unknown value is an explicit
-   fallback rather than a silent coercion to `:open`.
+   time, so the domain is the single source of truth. (An unrecognised value still coerces
+   to `:open`/`:unknown`; an earlier draft of this plan wrongly called that an explicit
+   fallback.)
 3. Add `where` guards on the approval and transition `update_all` calls, and assert the
    affected-row count so a no-op write is an error rather than a success.
 4. Add `unique_constraint/2` to the changesets whose migrations already declare unique

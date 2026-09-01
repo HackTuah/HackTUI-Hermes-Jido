@@ -129,7 +129,7 @@ defmodule HacktuiStore.WriteFlowsTest do
   test "persists a created alert via an Ecto.Multi", %{alert: alert, created_event: created_event} do
     assert {:ok, operations} = Alerts.persist_create(FakeRepo, alert, created_event)
 
-    assert {:insert, changeset, _opts} = operations.alert_insert
+    assert {:insert, changeset, _opts} = FakeRepo.operations().alert_insert
     assert changeset.changes.alert_id == "alert-1"
     assert changeset.changes.state == "open"
     assert changeset.changes.disposition == "unknown"
@@ -141,12 +141,12 @@ defmodule HacktuiStore.WriteFlowsTest do
   } do
     assert {:ok, operations} = Alerts.persist_transition(FakeRepo, alert, event)
 
-    assert {:update_all, query, updates, _opts} = operations.alert_state_update
+    assert {:update_all, query, updates, _opts} = FakeRepo.operations().alert_state_update
     assert query.from.source == {"alerts", HacktuiStore.Schema.Alert}
     assert [set: set_updates] = updates
     assert {:state, "investigating"} in set_updates
 
-    assert {:insert, changeset, _opts} = operations.alert_transition_insert
+    assert {:insert, changeset, _opts} = FakeRepo.operations().alert_transition_insert
     assert changeset.changes.to_state == "investigating"
   end
 
@@ -157,19 +157,19 @@ defmodule HacktuiStore.WriteFlowsTest do
     case_transitioned: transitioned
   } do
     assert {:ok, open_ops} = Cases.persist_open(FakeRepo, case_record, opened)
-    assert {:insert, case_changeset, _opts} = open_ops.case_insert
+    assert {:insert, case_changeset, _opts} = FakeRepo.operations().case_insert
     assert case_changeset.changes.case_id == "case-1"
     assert case_changeset.changes.status == "open"
 
     assert {:ok, transition_ops} = Cases.persist_transition(FakeRepo, triaged_case, transitioned)
 
-    assert {:update_all, query, updates, _opts} = transition_ops.case_status_update
+    assert {:update_all, query, updates, _opts} = FakeRepo.operations().case_status_update
 
     assert query.from.source == {"cases", HacktuiStore.Schema.CaseRecord}
     assert [set: set_updates] = updates
     assert {:status, "triage"} in set_updates
 
-    assert {:insert, timeline_changeset, _opts} = transition_ops.case_timeline_insert
+    assert {:insert, timeline_changeset, _opts} = FakeRepo.operations().case_timeline_insert
 
     assert timeline_changeset.changes.case_id == "case-1"
     assert timeline_changeset.changes.entry_type == "case_transitioned"
@@ -184,14 +184,14 @@ defmodule HacktuiStore.WriteFlowsTest do
     assert {:ok, request_ops} =
              Actions.persist_request(FakeRepo, action_request, action_requested)
 
-    assert {:insert, request_changeset, _opts} = request_ops.action_request_insert
+    assert {:insert, request_changeset, _opts} = FakeRepo.operations().action_request_insert
     assert request_changeset.changes.action_request_id == "act-1"
     assert request_changeset.changes.approval_status == "pending_approval"
 
     assert {:ok, approval_ops} =
              Actions.persist_approval(FakeRepo, approved_action_request, action_approved)
 
-    assert {:update_all, query, updates, _opts} = approval_ops.action_request_update
+    assert {:update_all, query, updates, _opts} = FakeRepo.operations().action_request_update
 
     assert query.from.source == {"action_requests", HacktuiStore.Schema.ActionRequest}
     assert [set: set_updates] = updates
@@ -200,7 +200,7 @@ defmodule HacktuiStore.WriteFlowsTest do
 
   test "persists audit records", %{audit_event: audit_event} do
     assert {:ok, operations} = Audits.persist(FakeRepo, audit_event)
-    assert {:insert, changeset, _opts} = operations.audit_insert
+    assert {:insert, changeset, _opts} = FakeRepo.operations().audit_insert
     assert changeset.changes.audit_id == "audit-1"
     assert changeset.changes.action == "approve_action"
   end

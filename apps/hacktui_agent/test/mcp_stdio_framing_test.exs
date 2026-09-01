@@ -18,6 +18,21 @@ defmodule HacktuiAgent.MCP.StdioFramingTest do
 
   defp repo_root, do: Path.expand("../../..", __DIR__)
 
+  # bin/hacktui-mcp runs `mix compile` on start, in MIX_ENV=dev. The suite runs in
+  # MIX_ENV=test, so warming the test build leaves dev stale and the child recompiles --
+  # printing "==> app" headers onto its stdout, which looks exactly like a framing
+  # violation. Warm the *dev* build explicitly.
+  setup_all do
+    {_out, 0} =
+      System.cmd("mix", ["compile"],
+        cd: repo_root(),
+        env: [{"MIX_ENV", "dev"}],
+        stderr_to_stdout: true
+      )
+
+    :ok
+  end
+
   defp mcp(input) do
     path = Path.join(System.tmp_dir!(), "mcp-in-#{System.unique_integer([:positive])}")
     File.write!(path, input)

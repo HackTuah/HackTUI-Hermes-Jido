@@ -107,9 +107,38 @@ defmodule HacktuiStore.TestSupport.Integration do
 end
 
 defmodule HacktuiStore.TestSupport.FakeRepo do
+  # Executes the Multi rather than merely converting it to a list. The previous version
+  # never invoked Multi.run/3, so the state guards added in slice 06 had no executing
+  # coverage at all -- they were shape-tested only.
+  #
+  # Raw operations are recorded so shape assertions remain possible; `operations/0`
+  # returns them.
   def transaction(multi) do
-    {:ok, Map.new(Ecto.Multi.to_list(multi))}
+    ops = Ecto.Multi.to_list(multi)
+    Process.put({__MODULE__, :operations}, Map.new(ops))
+
+    Enum.reduce_while(ops, {:ok, %{}}, fn
+      {name, {:run, fun}}, {:ok, acc} ->
+        case fun.(__MODULE__, acc) do
+          {:ok, value} -> {:cont, {:ok, Map.put(acc, name, value)}}
+          {:error, reason} -> {:halt, {:error, name, reason, acc}}
+        end
+
+      {name, operation}, {:ok, acc} ->
+        {:cont, {:ok, Map.put(acc, name, stub_result(operation))}}
+    end)
   end
+
+  @doc "Raw Multi operations from the most recent transaction/1 in this process."
+  def operations, do: Process.get({__MODULE__, :operations}, %{})
+
+  @doc "Sets the row count update_all reports, for exercising the state guards."
+  def set_update_all_count(count), do: Process.put({__MODULE__, :update_all_count}, count)
+
+  defp stub_result({:update_all, _query, _updates, _opts}),
+    do: {Process.get({__MODULE__, :update_all_count}, 1), nil}
+
+  defp stub_result(operation), do: operation
 end
 
 ExUnit.start(exclude: [integration: true])

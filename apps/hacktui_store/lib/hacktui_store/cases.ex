@@ -45,7 +45,14 @@ defmodule HacktuiStore.Cases do
 
   @spec transition_multi(InvestigationCase.t(), CaseTransitioned.t()) :: Ecto.Multi.t()
   def transition_multi(%InvestigationCase{} = case_record, %CaseTransitioned{} = event) do
-    query = from(record in CaseRecord, where: record.case_id == ^case_record.case_id)
+    # Guarded on the status the transition was computed against, matching the alert and
+    # action paths. Without it a stale transition overwrites a fresher one.
+    from_status = Atom.to_string(event.from_status)
+
+    query =
+      from(record in CaseRecord,
+        where: record.case_id == ^case_record.case_id and record.status == ^from_status
+      )
 
     Multi.new()
     |> Multi.update_all(
@@ -53,6 +60,9 @@ defmodule HacktuiStore.Cases do
       query,
       set: [status: Atom.to_string(case_record.status), updated_at: event.occurred_at]
     )
+    |> Multi.run(:case_status_guard, fn _repo, %{case_status_update: {count, _}} ->
+      if count == 1, do: {:ok, count}, else: {:error, {:stale_transition, from_status}}
+    end)
     |> Multi.insert(
       :case_timeline_insert,
       timeline_changeset(

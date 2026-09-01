@@ -33,6 +33,29 @@ rather than fixed in slice 01.
   are what the gate uses, so this is cosmetic. An earlier draft of this entry claimed
   dialyzer could not run at all; that was false and is retracted (see slice 01 F3).
 
+## Found by the batched review of slices 02-06
+
+- **`disposition` is plumbed but only partly rendered.** It now reaches the MCP tools and
+  the TUI alert-queue workflow, but `live_dashboard_view.format_alert_row/5` still renders
+  only severity, title, actor label and threat score — so the live dashboard still shows a
+  triaged alert as untriaged.
+- **`AlertProjector` is dead code that would destroy decisions if wired up.** It hardcodes
+  `state: "open"` on every projection including the update branch, and its insert
+  changeset is invalid (`disposition: can't be blank`), so it could never have inserted.
+- **`ReadModels.alert_queue_query/0` is a second, drifted definition of the alert queue** —
+  it omits `disposition` and hardcodes `state: fragment("'open'")`, while
+  `AlertQueueProjection.fields/0` declares `:disposition` is part of the read model.
+- **`runtime.ex` still excludes `acknowledged` from correlation** (`alert.state in
+  ["open", "investigating"]`), so an acknowledged alert stops absorbing correlated
+  observations and new rows appear for signal an analyst already triaged.
+- **Atom clauses in the normalisers pass any atom through unvalidated**, including the
+  non-canonical `:benign`/`:malicious`. Only the binary clause is domain-derived.
+- **The transition guard is case-sensitive** while the normaliser downcases, so a row whose
+  stored state is not lowercase would be permanently un-transitionable. Latent: all
+  in-repo writers emit lowercase.
+- **A zero-row approval reports `:already_decided` even when the row does not exist**, so a
+  mis-keyed id gives a misleading error.
+
 ## Found during slice 06 (decision integrity)
 
 - **The new approval/transition guards are unexercised against a live database.** They

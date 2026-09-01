@@ -12,6 +12,7 @@ defmodule HacktuiHub.DecisionIntegrityTest do
 
   alias HacktuiCore.AlertLifecycle
   alias HacktuiHub.QueryService
+  alias HacktuiHub.Runtime
 
   defmodule StubRepo do
     @moduledoc false
@@ -105,25 +106,33 @@ defmodule HacktuiHub.DecisionIntegrityTest do
   end
 
   describe "aggregate-path normalisation (Runtime)" do
-    test "every canonical state and disposition is derivable from the domain" do
-      # Runtime's normalisers now derive from AlertLifecycle rather than a hand-written
-      # subset. Previously three of six states collapsed to :open, and the disposition
-      # case accepted "benign"/"malicious" -- not canonical values -- while
-      # benign_true_activity fell through to :unknown.
+    test "every canonical state round-trips through Runtime.normalize_alert_state/1" do
+      # This previously re-implemented Enum.find/3 inline and asserted a property of
+      # AlertLifecycle rather than of the function under test -- deleting the normaliser
+      # would have left it green. It now calls the real function.
       for state <- AlertLifecycle.states() do
-        downcased = Atom.to_string(state)
-        found = Enum.find(AlertLifecycle.states(), :open, &(Atom.to_string(&1) == downcased))
-        assert found == state
+        assert Runtime.normalize_alert_state(Atom.to_string(state)) == state
+        assert Runtime.normalize_alert_state(state) == state
       end
+    end
 
+    test "every canonical disposition round-trips through Runtime.normalize_disposition/1" do
       for disposition <- AlertLifecycle.dispositions() do
-        downcased = Atom.to_string(disposition)
-
-        found =
-          Enum.find(AlertLifecycle.dispositions(), :unknown, &(Atom.to_string(&1) == downcased))
-
-        assert found == disposition
+        assert Runtime.normalize_disposition(Atom.to_string(disposition)) == disposition
       end
+    end
+
+    test "case is normalised on the way in" do
+      assert Runtime.normalize_alert_state("RESOLVED") == :resolved
+      assert Runtime.normalize_disposition("False_Positive") == :false_positive
+    end
+
+    test "an unrecognised value falls back to the documented default" do
+      # Honest statement of behaviour: this IS a coercion, not an error. An earlier
+      # version of this slice's PLAN claimed the fallback was "explicit rather than a
+      # silent coercion to :open" -- it is not, and the claim has been corrected.
+      assert Runtime.normalize_alert_state("triaged") == :open
+      assert Runtime.normalize_disposition("nonsense") == :unknown
     end
 
     test "the non-canonical values the old normaliser accepted are gone" do

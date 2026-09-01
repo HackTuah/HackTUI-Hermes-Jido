@@ -239,6 +239,8 @@ defmodule HacktuiHub.Runtime do
            ResponseGovernanceService.approve_action(action_request, command, opts),
          {:ok, persistence} <- Actions.persist_approval(repo, aggregate, event) do
       {:ok, %{aggregate: aggregate, event: event, persistence: persistence}}
+    else
+      other -> normalize_persistence_error(other)
     end
   end
 
@@ -760,7 +762,7 @@ defmodule HacktuiHub.Runtime do
       from(case_record in CaseRecord,
         where:
           case_record.title == ^title and
-            case_record.status in ["open", "triage", "investigating"],
+            case_record.status in ["open", "triage", "active_investigation"],
         order_by: [desc: case_record.updated_at],
         limit: 1
       )
@@ -916,31 +918,35 @@ defmodule HacktuiHub.Runtime do
 
   defp normalize_create_alert_command(command), do: command
 
-  defp normalize_alert_state(nil), do: :open
-  defp normalize_alert_state(state) when is_atom(state), do: state
+  @doc false
+  @spec normalize_alert_state(term()) :: atom()
+  def normalize_alert_state(nil), do: :open
+  def normalize_alert_state(state) when is_atom(state), do: state
 
   # Derived from AlertLifecycle so the domain is the single source of truth. The previous
   # case handled three of six states and mapped everything else to :open, so a resolved
   # alert re-materialised as open on every read.
-  defp normalize_alert_state(state) when is_binary(state) do
+  def normalize_alert_state(state) when is_binary(state) do
     downcased = String.downcase(state)
     Enum.find(AlertLifecycle.states(), :open, &(Atom.to_string(&1) == downcased))
   end
 
-  defp normalize_alert_state(_), do: :open
+  def normalize_alert_state(_), do: :open
 
-  defp normalize_disposition(nil), do: :unknown
-  defp normalize_disposition(disposition) when is_atom(disposition), do: disposition
+  @doc false
+  @spec normalize_disposition(term()) :: atom()
+  def normalize_disposition(nil), do: :unknown
+  def normalize_disposition(disposition) when is_atom(disposition), do: disposition
 
   # The previous case accepted "benign" and "malicious", which are not canonical
   # dispositions, while benign_true_activity -- what DemoSeed writes -- fell through to
   # :unknown, erasing the analyst's decision on every read.
-  defp normalize_disposition(disposition) when is_binary(disposition) do
+  def normalize_disposition(disposition) when is_binary(disposition) do
     downcased = String.downcase(disposition)
     Enum.find(AlertLifecycle.dispositions(), :unknown, &(Atom.to_string(&1) == downcased))
   end
 
-  defp normalize_disposition(_), do: :unknown
+  def normalize_disposition(_), do: :unknown
 
   defp severity_to_string(nil), do: "medium"
   defp severity_to_string(severity) when is_atom(severity), do: Atom.to_string(severity)
