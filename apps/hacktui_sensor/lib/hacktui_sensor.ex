@@ -130,6 +130,14 @@ defmodule HacktuiSensor do
       {:noreply, state}
     end
 
+    def handle_info(msg, state) do
+      Logger.warning(
+        "[hacktui_sensor] unmatched message in #{inspect(__MODULE__)}: #{inspect(msg)}"
+      )
+
+      {:noreply, state}
+    end
+
     defp normalized_payload(state, now) do
       message_queue_len = Process.info(self(), :message_queue_len) |> elem(1)
       reductions = Process.info(self(), :reductions) |> elem(1)
@@ -211,8 +219,18 @@ defmodule HacktuiSensor do
     end
 
     def handle_info({_port, {:exit_status, _status}}, state) do
-      Process.send_after(self(), :boot, 2_000)
-      {:noreply, %{state | port: nil, buffer: ""}}
+      # Same backoff the network collector got: this previously rescheduled every 2s
+      # forever, which with journalctl absent is an unbounded respawn loop.
+      failures = Map.get(state, :consecutive_failures, 0) + 1
+      state = %{state | port: nil, buffer: ""} |> Map.put(:consecutive_failures, failures)
+
+      if failures > 8 do
+        Logger.error("[hacktui_sensor] journald capture giving up after #{failures} failures")
+        {:noreply, Map.put(state, :enabled?, false)}
+      else
+        Process.send_after(self(), :boot, min(2_000 * Integer.pow(2, failures - 1), 60_000))
+        {:noreply, state}
+      end
     end
 
     def handle_info(msg, state) do

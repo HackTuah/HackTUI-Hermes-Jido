@@ -33,6 +33,42 @@ rather than fixed in slice 01.
   are what the gate uses, so this is cosmetic. An earlier draft of this entry claimed
   dialyzer could not run at all; that was false and is retracted (see slice 01 F3).
 
+## Open after slice 07 (from the batched review; deliberately not fixed)
+
+- **MCP egress masking is cosmetic.** `MCP.Egress` masks `src`/`dst`/`site` etc., but
+  `payload["summary"]` concatenates those same values and is not in `@masked_fields`, so
+  the private IP stripped from `src` egresses verbatim in the same record. `info`, `path`
+  and `indicators` (plural) are likewise unlisted. Fixing this needs `PrivacyMask` itself
+  broadened past RFC1918/loopback IPv4, not more field names.
+- **`Dispatch.safe_call/3` returns raw exception text to an unauthenticated caller** --
+  stacktraces, SQL, table names, `erts`/`elixir`/dependency versions, absolute paths. And
+  because `hacktui.mcp` removes the default logger handler, the untrusted caller is the
+  *only* party that learns a tool crashed. Needs an opaque error id plus a log sink that
+  is not stdout.
+- **Derived `alert_id` collides across VM restarts.** `Detection.alert_id_for/1` uses the
+  observation id, which collectors derive from `System.unique_integer([:positive,
+  :monotonic])` -- restarting near zero on every boot. With slice 06's
+  `unique_constraint(:alert_id)` the Nth high-severity observation after a restart now
+  collides. Derive from a fingerprint instead.
+- **Slice 04's `else` clauses and slice 02's repo-present ingest path have zero executing
+  coverage.** Proven by mutation: reintroducing the original defect in either leaves the
+  suite green. `hacktui_store`'s `FakeRepo` would cover the ingest path without Postgres.
+- **Correlation is effectively disabled on the live path.** `derive_title/1` now returns
+  the payload summary, which is unique per network flow, and `find_correlated_alert/4`
+  keys the dedup window on title + severity -- so it will essentially never match and
+  every promoted observation creates a new row.
+- **Alert titles are now attacker-authored.** `derive_title/1` returns `payload["summary"]`
+  verbatim; that text is built from DNS name, TLS SNI, HTTP host and tshark `_ws.col.Info`.
+  Combined with severity-driven promotion, an attacker on a monitored wire chooses both
+  whether an alert exists and what the analyst's model reads.
+- **`ThreatIntel` writes a string-keyed `"threat_context"` binary that nothing consumes.**
+  Slice 03 supervised the Indexer, so `Enricher` now runs; slice 02 stopped
+  `normalize_metadata_map/1` rewriting keys, so the old `Map.delete(:threat_context)`
+  cleanup no longer matches. The value reaches persisted metadata and drives nothing.
+- **`initialize` is still never enforced** -- `initialized?` is written and never read.
+- **Two of six MCP tools still have no schema**, so the catch-all advertises
+  `additionalProperties: true`.
+
 ## Found by the batched review of slices 02-06
 
 - **`disposition` is plumbed but only partly rendered.** It now reaches the MCP tools and

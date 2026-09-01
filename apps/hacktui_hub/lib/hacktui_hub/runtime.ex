@@ -50,28 +50,50 @@ defmodule HacktuiHub.Runtime do
       |> apply_threat_intel_defaults()
       |> enrich_observation_attrs()
 
-    with {:ok, accepted} <- IngestService.accept_observation(command, opts) do
-      if repo_available?(repo) do
-        persist_accepted_observation(repo, accepted, opts)
-      else
-        # Default runtime is HACKTUI_START_REPO=false. Say so rather than claiming a
-        # write happened or crashing the sensor.
-        {:ok, unpersisted_result(accepted, :skipped_no_repo)}
-      end
+    # IngestService.accept_observation/2 is total -- it always returns {:ok, accepted}.
+    # An error branch here is provably unreachable; persistence failures are surfaced in
+    # the result's :persistence field by safely_persist/3 instead.
+    {:ok, accepted} = IngestService.accept_observation(command, opts)
+
+    if repo_available?(repo) do
+      safely_persist(repo, accepted, opts)
+    else
+      # Default runtime is HACKTUI_START_REPO=false. Say so rather than claiming a write
+      # happened or crashing the sensor.
+      {:ok, unpersisted_result(accepted, :skipped_no_repo)}
     end
+  end
+
+  # repo_available?/1 can only tell us the Repo *process* is up; the database behind it
+  # may still be unreachable. Persistence failures must degrade to a reported error, not
+  # an exception that propagates into the sensor's GenServer.
+  defp safely_persist(repo, accepted, opts) do
+    persist_accepted_observation(repo, accepted, opts)
+  rescue
+    error ->
+      Logger.error("[hacktui_hub] persistence failed: #{Exception.message(error)}")
+      {:ok, unpersisted_result(accepted, {:persistence_unavailable, error.__struct__})}
+  catch
+    :exit, reason ->
+      Logger.error("[hacktui_hub] persistence exited: #{inspect(reason)}")
+      {:ok, unpersisted_result(accepted, {:persistence_unavailable, :exit})}
   end
 
   # An observation is always audited. It becomes an alert only when detection promotes it.
   defp persist_accepted_observation(repo, accepted, opts) do
-    with {:ok, audit_persistence} <- Audits.persist(repo, observation_audit_event(accepted)) do
-      if Detection.promote?(accepted) do
-        promote_observation(repo, accepted, audit_persistence, opts)
-      else
-        {:ok,
-         accepted
-         |> unpersisted_result(:audited)
-         |> Map.put(:audit_persistence, audit_persistence)}
-      end
+    case Audits.persist(repo, observation_audit_event(accepted)) do
+      {:ok, audit_persistence} ->
+        if Detection.promote?(accepted) do
+          promote_observation(repo, accepted, audit_persistence, opts)
+        else
+          {:ok,
+           accepted
+           |> unpersisted_result(:audited)
+           |> Map.put(:audit_persistence, audit_persistence)}
+        end
+
+      other ->
+        normalize_persistence_error(other)
     end
   end
 
@@ -99,6 +121,8 @@ defmodule HacktuiHub.Runtime do
          threat_score: threat_score,
          threat_alert: threat_alert
        }}
+    else
+      other -> normalize_persistence_error(other)
     end
   end
 

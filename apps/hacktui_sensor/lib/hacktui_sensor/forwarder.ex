@@ -172,7 +172,10 @@ defmodule HacktuiSensor.Forwarder do
   defp normalize_rpc_result({:ok, _} = ok), do: ok
   defp normalize_rpc_result({:error, _} = error), do: error
   defp normalize_rpc_result({:badrpc, reason}), do: {:error, {:hub_rpc_failed, reason}}
-  defp normalize_rpc_result(other), do: {:ok, other}
+  # Previously `{:ok, other}` -- which converted a leaked Ecto.Multi error 4-tuple into
+  # a reported success, so a failed persist incremented the accepted counter.
+  defp normalize_rpc_result({:error, _step, reason, _changes}), do: {:error, reason}
+  defp normalize_rpc_result(other), do: {:error, {:unexpected_hub_result, other}}
 
   defp wait_for_connection(node_name, timeout) do
     deadline = System.monotonic_time(:millisecond) + timeout

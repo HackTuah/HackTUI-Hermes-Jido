@@ -1,0 +1,18 @@
+slice: 07-mcp-hardening
+staged-diff-sha256: da8965c89fa01ab40be91316cbc69108eedb689bff0a8fd354dbbbb92a3c4229
+review-rounds: 2 (of slices 02-06, which produced this slice; this diff is unreviewed)
+verdicts: FAIL, FAIL
+
+Two independent reviewers examined slices 02-06 with disjoint lenses and both returned
+FAIL. This slice fixes what they found. A third lens (claims verification) has not yet
+reported.
+
+Asserts: gates passed -- test 7 held (168 tests), credo 77 held, dialyzer 43 held. The
+DB-outage crash, the stdio memory amplification, and the restored sensor test coverage
+were each verified by execution before and after.
+
+Does NOT assert: that any reviewer examined THIS diff; that the MCP boundary is secure
+(masking is still cosmetic and error responses still leak internals -- both recorded in
+BACKLOG.md rather than fixed); or that the ingest path has test coverage. Mutation
+testing by the reviewer proved slice 04's else clauses and slice 02's repo-present path
+are still uncovered, and this slice did not close that.

@@ -49,24 +49,38 @@ defmodule HacktuiAgent.MCP.Stdio do
   @max_body_bytes 1_048_576
 
   defp read_message do
-    case IO.binread(:stdio, :line) do
+    case read_line_bounded() do
       :eof ->
         :eof
 
       {:error, reason} ->
         {:error, reason}
 
-      line when byte_size(line) > @max_line_bytes ->
-        {:error, :frame_too_large}
-
-      line ->
-        trimmed = String.trim_trailing(line, "\n") |> String.trim_trailing("\r")
+      {:ok_line, line} ->
+        trimmed = String.trim_trailing(line, "\r")
 
         cond do
           trimmed == "" -> read_message()
           content_length_header?(trimmed) -> read_legacy_framed(trimmed)
           true -> decode(trimmed)
         end
+    end
+  end
+
+  # Reads one newline-terminated line, refusing to allocate past @max_line_bytes.
+  # The cap has to bound the read, not merely inspect its result.
+  defp read_line_bounded(acc \\ [], size \\ 0)
+
+  defp read_line_bounded(_acc, size) when size >= @max_line_bytes,
+    do: {:error, :frame_too_large}
+
+  defp read_line_bounded(acc, size) do
+    case IO.binread(:stdio, 1) do
+      :eof when acc == [] -> :eof
+      :eof -> {:ok_line, acc |> Enum.reverse() |> IO.iodata_to_binary()}
+      {:error, reason} -> {:error, reason}
+      "\n" -> {:ok_line, acc |> Enum.reverse() |> IO.iodata_to_binary()}
+      byte -> read_line_bounded([byte | acc], size + 1)
     end
   end
 

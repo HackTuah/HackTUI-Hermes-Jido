@@ -150,13 +150,6 @@ defmodule HacktuiHub.Replay.Runner do
   defp unwrap_acceptance!({:ok, %{observation: %ObservationAccepted{} = accepted}}, _envelope),
     do: accepted
 
-  defp unwrap_acceptance!({:ok, %ObservationAccepted{} = accepted}, _envelope), do: accepted
-
-  defp unwrap_acceptance!({:error, reason}, %Envelope{} = envelope) do
-    raise ArgumentError,
-          "replay acceptance failed for #{inspect(envelope.kind)}: #{inspect(reason)}"
-  end
-
   defp unwrap_acceptance!(other, %Envelope{} = envelope) do
     raise ArgumentError,
           "unexpected replay acceptance result for #{inspect(envelope.kind)}: #{inspect(other)}"

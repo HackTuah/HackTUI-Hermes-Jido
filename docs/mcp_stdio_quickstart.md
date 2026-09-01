@@ -22,7 +22,7 @@ Why this launcher matters:
 From the repo root:
 
 ```bash
-printf 'Content-Length: 52\r\n\r\n{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n' \
   | ./bin/hacktui-mcp
 ```
 

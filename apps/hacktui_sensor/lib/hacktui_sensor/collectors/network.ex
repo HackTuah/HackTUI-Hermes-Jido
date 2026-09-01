@@ -21,7 +21,7 @@ defmodule HacktuiSensor.Collectors.Network do
 
   @restart_delay_ms 2_000
   @max_restart_delay_ms 60_000
-  @max_restart_attempts 5
+  @max_restart_attempts 8
 
   @error_prefixes [
     "tshark:",
@@ -53,6 +53,7 @@ defmodule HacktuiSensor.Collectors.Network do
       buffer: "",
       tshark_path: tshark_path(),
       last_error: nil,
+      consecutive_failures: 0,
       started_at: DateTime.utc_now() |> DateTime.truncate(:second)
     }
 
@@ -95,7 +96,12 @@ defmodule HacktuiSensor.Collectors.Network do
              | port: port,
                buffer: "",
                tshark_path: path,
-               last_error: nil
+               last_error: nil,
+               # Reset on a successful capture start. Without this the counter
+               # accumulated over the process lifetime, so a collector that worked fine
+               # but whose tshark restarted N times over hours permanently disabled
+               # itself -- and stayed alive, so no supervisor restart could recover it.
+               consecutive_failures: 0
            }}
         rescue
           error ->
