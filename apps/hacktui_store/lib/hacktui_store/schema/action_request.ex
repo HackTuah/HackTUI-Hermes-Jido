@@ -36,5 +36,6 @@ defmodule HacktuiStore.Schema.ActionRequest do
       :metadata
     ])
     |> validate_required([:action_request_id, :case_id, :action_class, :approval_status])
+    |> unique_constraint(:action_request_id)
   end
 end

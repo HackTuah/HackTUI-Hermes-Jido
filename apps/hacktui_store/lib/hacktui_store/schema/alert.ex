@@ -20,5 +20,6 @@ defmodule HacktuiStore.Schema.Alert do
     alert
     |> cast(attrs, [:id, :alert_id, :title, :severity, :state, :disposition, :metadata])
     |> validate_required([:alert_id, :title, :severity, :state, :disposition])
+    |> unique_constraint(:alert_id)
   end
 end

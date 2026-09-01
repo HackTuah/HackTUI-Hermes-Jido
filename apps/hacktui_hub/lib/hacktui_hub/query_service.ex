@@ -357,6 +357,7 @@ defmodule HacktuiHub.QueryService do
       title: alert.title,
       severity: normalize_severity(alert.severity),
       state: normalize_state(alert.state),
+      disposition: alert.disposition,
       metadata: metadata,
       indicators:
         normalize_indicators(
@@ -374,6 +375,7 @@ defmodule HacktuiHub.QueryService do
       title: Map.get(alert, :title),
       severity: normalize_severity(Map.get(alert, :severity)),
       state: normalize_state(Map.get(alert, :state)),
+      disposition: Map.get(alert, :disposition),
       metadata: metadata,
       indicators:
         normalize_indicators(

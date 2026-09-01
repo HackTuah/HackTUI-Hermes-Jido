@@ -33,6 +33,16 @@ rather than fixed in slice 01.
   are what the gate uses, so this is cosmetic. An earlier draft of this entry claimed
   dialyzer could not run at all; that was false and is retracted (see slice 01 F3).
 
+## Found during slice 06 (decision integrity)
+
+- **The new approval/transition guards are unexercised against a live database.** They
+  are unit-tested against stubs; no concurrent-approval test exists because the
+  `:integration` path has never run. The TOCTOU race is closed by construction, not by
+  demonstration.
+- **The correlation read-modify-write is still unguarded** (`runtime.ex`), so `hit_count`
+  and `observation_refs` -- the evidence-linkage field -- are still lost under
+  concurrency. Slice 07.
+
 ## Found during slice 05 (MCP boundary)
 
 - **`to_json_value/1` stringifies atoms**, so booleans are type-mangled on every tool

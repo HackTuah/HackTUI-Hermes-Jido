@@ -34,7 +34,14 @@ defmodule HacktuiStore.Alerts do
 
   @spec transition_multi(DomainAlert.t(), AlertTransitioned.t()) :: Ecto.Multi.t()
   def transition_multi(%DomainAlert{} = alert, %AlertTransitioned{} = event) do
-    query = from(record in Alert, where: record.alert_id == ^alert.alert_id)
+    # Guarded on the state the transition was computed against, so a stale transition
+    # cannot overwrite a fresher one.
+    from_state = Atom.to_string(event.from_state)
+
+    query =
+      from(record in Alert,
+        where: record.alert_id == ^alert.alert_id and record.state == ^from_state
+      )
 
     Multi.new()
     |> Multi.update_all(
@@ -42,6 +49,9 @@ defmodule HacktuiStore.Alerts do
       query,
       set: [state: Atom.to_string(alert.state), updated_at: event.occurred_at]
     )
+    |> Multi.run(:alert_state_guard, fn _repo, %{alert_state_update: {count, _}} ->
+      if count == 1, do: {:ok, count}, else: {:error, {:stale_transition, from_state}}
+    end)
     |> Multi.insert(:alert_transition_insert, alert_transition_changeset(event))
   end
 

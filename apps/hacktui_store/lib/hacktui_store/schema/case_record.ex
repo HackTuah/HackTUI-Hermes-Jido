@@ -19,5 +19,6 @@ defmodule HacktuiStore.Schema.CaseRecord do
     case_record
     |> cast(attrs, [:id, :case_id, :title, :status, :assigned_to, :metadata])
     |> validate_required([:case_id, :title, :status])
+    |> unique_constraint(:case_id)
   end
 end

@@ -1,0 +1,14 @@
+slice: 06-decision-integrity
+staged-diff-sha256: d14bbd7ab21d4f9e47f64c8331e8aa39b61f01aecb6d06c827582aeadc259087
+review-rounds: 0
+verdicts: not yet reviewed
+
+Committed under maintainer direction to batch adversarial review to the end of the
+slice run.
+
+Asserts: gates passed -- test 7 held (159 tests), credo 77 held, dialyzer 43 held.
+All twelve canonical lifecycle values round-trip, verified by execution.
+
+Does NOT assert: that any reviewer examined this diff, or that the approval and
+transition guards work against a live PostgreSQL. They are closed by construction and
+unit-tested against stubs; no concurrent test exists. See BACKLOG.md.

@@ -30,5 +30,6 @@ defmodule HacktuiStore.Schema.AuditEvent do
       :metadata
     ])
     |> validate_required([:audit_id, :action, :result, :occurred_at])
+    |> unique_constraint(:audit_id)
   end
 end

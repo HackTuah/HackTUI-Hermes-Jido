@@ -34,9 +34,15 @@ defmodule HacktuiStore.Actions do
 
   @spec approval_multi(DomainActionRequest.t(), ActionApproved.t()) :: Ecto.Multi.t()
   def approval_multi(%DomainActionRequest{} = action_request, %ActionApproved{} = event) do
+    # Guarded on the current status. Without it, two concurrent approvers both pass the
+    # aggregate's :already_decided check, both writes succeed, and the second silently
+    # overwrites approved_by/approved_at -- so the record of who authorised a containment
+    # action was last-writer-wins.
     query =
       from(record in ActionRequest,
-        where: record.action_request_id == ^action_request.action_request_id
+        where:
+          record.action_request_id == ^action_request.action_request_id and
+            record.approval_status == "pending_approval"
       )
 
     Multi.new()
@@ -50,6 +56,10 @@ defmodule HacktuiStore.Actions do
         updated_at: event.approved_at
       ]
     )
+    # update_all returns {count, nil}; a zero-row update means someone decided first.
+    |> Multi.run(:action_request_guard, fn _repo, %{action_request_update: {count, _}} ->
+      if count == 1, do: {:ok, count}, else: {:error, :already_decided}
+    end)
   end
 
   defp request_changeset(%DomainActionRequest{} = action_request, %ActionRequested{} = event) do

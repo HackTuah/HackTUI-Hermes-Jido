@@ -15,6 +15,7 @@ defmodule HacktuiHub.Runtime do
   require Logger
 
   alias HacktuiCore.ActorRef
+  alias HacktuiCore.AlertLifecycle
   alias HacktuiCore.Commands.CreateAlert
   alias HacktuiCore.Detection
   alias HacktuiCore.Events.{AuditRecorded, ObservationAccepted}
@@ -918,13 +919,12 @@ defmodule HacktuiHub.Runtime do
   defp normalize_alert_state(nil), do: :open
   defp normalize_alert_state(state) when is_atom(state), do: state
 
+  # Derived from AlertLifecycle so the domain is the single source of truth. The previous
+  # case handled three of six states and mapped everything else to :open, so a resolved
+  # alert re-materialised as open on every read.
   defp normalize_alert_state(state) when is_binary(state) do
-    case String.downcase(state) do
-      "open" -> :open
-      "investigating" -> :investigating
-      "closed" -> :closed
-      _ -> :open
-    end
+    downcased = String.downcase(state)
+    Enum.find(AlertLifecycle.states(), :open, &(Atom.to_string(&1) == downcased))
   end
 
   defp normalize_alert_state(_), do: :open
@@ -932,13 +932,12 @@ defmodule HacktuiHub.Runtime do
   defp normalize_disposition(nil), do: :unknown
   defp normalize_disposition(disposition) when is_atom(disposition), do: disposition
 
+  # The previous case accepted "benign" and "malicious", which are not canonical
+  # dispositions, while benign_true_activity -- what DemoSeed writes -- fell through to
+  # :unknown, erasing the analyst's decision on every read.
   defp normalize_disposition(disposition) when is_binary(disposition) do
-    case String.downcase(disposition) do
-      "unknown" -> :unknown
-      "benign" -> :benign
-      "malicious" -> :malicious
-      _ -> :unknown
-    end
+    downcased = String.downcase(disposition)
+    Enum.find(AlertLifecycle.dispositions(), :unknown, &(Atom.to_string(&1) == downcased))
   end
 
   defp normalize_disposition(_), do: :unknown
