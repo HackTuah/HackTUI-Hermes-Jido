@@ -19,14 +19,19 @@ fail".
    **atom**, so `String.contains?(:packet_capture, "jido")` raised `FunctionClauseError` —
    with no rescue anywhere in `Dispatch → Server → Stdio`, killing the client session.
 2. **No tool may kill the transport.** Added `Dispatch.safe_call/3`, now the default
-   dispatch function in `MCP.Server`.
+   dispatch function in `MCP.Server`. **RETRACTED (slice 08):** as shipped it rescued
+   exceptions and caught `:exit` but **not `:throw`**, so a thrown term still ended the
+   session. "Guarantees" was too strong. `:throw` is caught as of slice 08.
 3. **Query failures are reported, not swallowed.** `safe_all_query/2` returned `[]` on any
    error. It now logs, records the failure, and the dashboard snapshot carries a
    `:degraded` field.
 4. **The TUI shows it.** A red `DEGRADED: read failed (...)` banner in the header.
 5. **The false docstring is gone.** `QueryService`'s moduledoc claimed "no hidden rescue
    path that turns real alerts into an empty queue" 484 lines above exactly that path.
-6. **Six `with` blocks no longer leak.** `HacktuiStore` returns `Ecto.Multi`'s
+6. **Six `with` blocks no longer leak.** **RETRACTED (slice 08):** there are seven.
+   `approve_action/3` -- the one that records who authorised a containment action -- was
+   missed, and slice 06's guards then made its leak reachable. Fixed in the slice 06
+   follow-up. `HacktuiStore` returns `Ecto.Multi`'s
    `{:error, step, reason, changes}`; every public `Runtime` function is `@spec`'d
    `{:ok, map()} | {:error, term()}` and none had an `else`. `Forwarder`'s
    `normalize_rpc_result/1` then converted that leak into **success**.

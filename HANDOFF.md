@@ -3,7 +3,7 @@
 Rolling state for CLAUDE.md §6. Update at the end of every slice and before any
 `/compact`.
 
-**Last updated:** 2026-08-31, end of slice 01.
+**Last updated:** 2026-09-01, end of slice 08.
 
 ## Where things stand
 
@@ -20,11 +20,11 @@ hidden — see `.claude/gate-baseline.json` and
 | compile `--warnings-as-errors` | pass — hard-blocking |
 | format `--check-formatted` | pass — hard-blocking |
 | secret scan (corrected pattern) | pass — hard-blocking |
-| test | **7 failures** — ratchet, slice 06 drives to 0 |
+| test | **7 failures** of 168 — ratchet. Six have never passed in any commit; the seventh is a timing flake |
 | credo `--strict` | **77 issues** — ratchet |
-| dialyzer | **61 warnings** — ratchet (`--format raw`; only `short`/`github` formatters throw) |
-| deps.audit | **13 advisories / 6 packages** — advisory, no ratchet |
-| hex.audit | **23 advisories / 7 packages** (superset; incl. `hpax` HIGH) — advisory, no ratchet |
+| dialyzer | **43 warnings** — ratchet (`--format raw`; only `short`/`github` formatters throw) |
+| deps.audit | **12 advisories / 5 packages** — advisory, no ratchet |
+| hex.audit | **20 advisories / 6 packages** (superset; incl. `hpax` HIGH) — advisory, no ratchet |
 | sobelow | 7 findings across 3 apps — advisory |
 
 ## How enforcement works
@@ -40,16 +40,47 @@ things — including slice 01's own. Baselines may only decrease; raising one is
 in the diff and must be rejected in review. There is intentionally no bypass flag, and
 section 4 still forbids `--no-verify`, `git -C`, `git stash`, and quiet flags.
 
+## Slices landed
+
+| # | Slice | Commit |
+|---|---|---|
+| 01 | governance-gates (+ follow-up) | `563b26c`, `193549c` |
+| 02 | ingest-unification | `049c57d` |
+| 03 | supervision-lifecycle | `f2dceca` |
+| 04 | error-propagation | `671049b` |
+| 05 | mcp-conformance-and-boundary | `09c42e9` |
+| 06 | decision-integrity (+ follow-up) | `3b94fdf`, `25f9764` |
+| 07 | mcp-hardening | `2221287` |
+| 08 | egress-funnel-and-retractions | this commit |
+
+**Renumbering:** the original plan had 05 = data-integrity and 06 = threat-intel. Review
+established the MCP boundary was more urgent, so the order became 05 = MCP conformance,
+06 = decision integrity, 07/08 = review remediation. **ThreatIntel is now slice 09** and
+is what unblocks the last of the failing tests. Slice-02 and -03 documents that say
+"slice 06" for ThreatIntel predate this change.
+
 ## Next
 
-Slice 02 — `02-ingest-unification`. The keystone: `Runtime.accept_observation/2` has
-zero production callers, so live telemetry is never persisted and the audit trail
-claimed throughout the docs does not exist for live operation. Nothing downstream
-(correlation, dedup, threat scoring, auto-case creation) is reachable until this lands.
+**Slice 09 — ThreatIntel.** Its `threat_context` still has incompatible shapes across
+four modules, and slice 03 supervising the Indexer made `Enricher` start writing a
+string-keyed binary that nothing consumes. Two of the seven failing tests are here.
 
-Ordering after that: 03 supervision → 04 error propagation (includes the MCP transport
-crash) → 05 data integrity → 06 threat-intel + green suite → 07/08 security → 09–12
-integration, packaging, truthfulness, DARPA artifacts.
+Then: correlation lost-update race and missing indexes; packaging and Hex metadata;
+truthfulness pass over the remaining false doc claims; DARPA artifacts (NOVELTY.md,
+evaluation methodology, SBOM, responsible-use).
+
+## Review status
+
+Slices 02–06 were committed unreviewed under an explicit instruction to batch review to
+the end. That batch ran with four reviewers on disjoint lenses. **All four returned FAIL.**
+Between them they found: an availability regression (a DB outage killed the sensor), a
+memory-amplification DoS, persistence failures reported as success on the live path,
+silent loss of end-to-end test coverage that the scalar ratchet could not see, and **three
+separate "fixed" claims describing changes that were never applied.**
+
+Slices 07 and 08 remediate. The false claims are retracted **in place** in the documents
+that made them rather than deleted, because a reader finding the original text is the
+failure mode being guarded against.
 
 ## Open items not owned by a slice yet
 

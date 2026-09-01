@@ -18,7 +18,7 @@
     "hex_audit_advisories": "count of '^  <pkg> <version>' lines in `mix hex.audit` (superset of deps.audit)",
     "deps_audit_advisories": "count of '^Name:' lines in `mix do deps.loadpaths + deps.audit`"
   },
-  "hex_audit_advisories": 23,
+  "hex_audit_advisories": 20,
   "deps_audit_advisories": 12,
   "_corrections": [
     {

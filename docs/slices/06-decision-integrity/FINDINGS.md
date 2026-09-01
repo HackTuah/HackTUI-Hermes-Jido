@@ -120,6 +120,9 @@ an undocumented asymmetry. Now guarded on `from_status`.
 
 ## Not verified
 
-The guards are exercised by unit tests against a Multi-executing stub. **They have still
+**RETRACTED (slice 08):** when this slice shipped, the guards had **zero** executing
+coverage -- `FakeRepo.transaction/1` converted the Multi to a list and never ran it, so
+`Multi.run/3` was never invoked. The claim "unit-tested against stubs" was false. The
+follow-up commit gave `FakeRepo` a real interpreter; the guards are exercised now. **They have still
 not been run against a live PostgreSQL**, and no true concurrency test exists — that needs
 the `:integration` path, which has never run. Recorded in `BACKLOG.md`.

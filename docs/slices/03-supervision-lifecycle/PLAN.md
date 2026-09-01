@@ -34,8 +34,10 @@ its own release.
 7. **`journalctl` resolved at runtime.** As a module attribute it baked the build host's
    filesystem into the release; a container without systemd got `nil` permanently, with
    no diagnostic. Dialyzer had proven the resulting `is_nil/1` guard dead.
-8. **`handle_info` catch-alls log.** All three collectors silently dropped unmatched
-   messages, including port exits.
+8. **`handle_info` catch-alls log.** **RETRACTED (slice 08):** two of three, not all
+   three. `Collectors.ProcessSignals` had no catch-all at all, so an unmatched message
+   raised `FunctionClauseError` and killed the collector rather than being "silently
+   dropped". Fixed in slice 07.
 
 ## Out of scope (section 9)
 

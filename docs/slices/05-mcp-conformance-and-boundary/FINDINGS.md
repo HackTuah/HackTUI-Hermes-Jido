@@ -33,8 +33,11 @@ exit=0
 There was **no test of `Stdio` at all**, which is why this shipped. There are now four,
 including one that runs the smoke client, so the defect cannot recur silently.
 
-Also corrected: `docs/mcp_stdio_quickstart.md` declared `Content-Length: 52` for a
-58-byte body and promised a response it could not produce; `README.md` advertised
+**RETRACTED (slice 08):** this document originally said `docs/mcp_stdio_quickstart.md`
+had been corrected from `Content-Length: 52` for a 58-byte body. **It had not.** The
+commit touched only that file's intro paragraph; line 25 was untouched, and running the
+command the doc prints produced two `-32700 Parse error`s. Actually corrected in slice 07.
+Also corrected: `README.md` advertised
 `"protocolVersion":"2025-11-05"` twice, a revision that does not exist.
 
 ## F2 — A caller could dictate fields on any tool response. Fixed.
@@ -75,6 +78,11 @@ response). Logged in `BACKLOG.md`; fixing it changes every response shape.
 `apps/hacktui_agent/lib`. The TUI masked source and destination IPs; the MCP tool
 shipping the same records to a third-party model masked nothing. `CLAUDE.md:105` names
 privacy masking as a requirement for this module.
+
+**RETRACTED (slice 08):** "funnel" was inaccurate. It was four hand-placed `|> Egress.mask()`
+calls at individual call sites, and `draft_report` -- which embeds the same case timeline
+`get_case_timeline` masks -- was not one of them, so it egressed unmasked. Masking is now
+applied once in `Dispatch.safe_call/3`, which is a funnel. Original text:
 
 Added `MCP.Egress` as a funnel — every read tool's result passes through it:
 ```

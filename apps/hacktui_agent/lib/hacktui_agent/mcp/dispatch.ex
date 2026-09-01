@@ -22,12 +22,26 @@ defmodule HacktuiAgent.MCP.Dispatch do
   """
   @spec safe_call(atom(), term(), keyword()) :: {:ok, term()} | {:error, term()}
   def safe_call(tool, args, opts) do
-    call(tool, args, opts)
+    # Single egress point: every successful tool result is masked here, so a new tool
+    # cannot be added without masking. This was previously four hand-placed pipes at the
+    # call sites, and draft_report -- which embeds the same case timeline that
+    # get_case_timeline masks -- was not one of them.
+    case call(tool, args, opts) do
+      {:ok, result} -> {:ok, Egress.mask(result)}
+      other -> other
+    end
   rescue
     error ->
       Logger.error("[hacktui_mcp] tool #{inspect(tool)} raised: #{Exception.message(error)}")
       {:error, %{tool: tool, reason: Exception.message(error)}}
   catch
+    # :throw was previously uncaught, so a thrown term still ended the client session --
+    # while the slice-04 PLAN and commit both said this "guarantees no tool can take
+    # down the transport".
+    :throw, value ->
+      Logger.error("[hacktui_mcp] tool #{inspect(tool)} threw: #{inspect(value)}")
+      {:error, %{tool: tool, reason: "tool threw"}}
+
     :exit, reason ->
       Logger.error("[hacktui_mcp] tool #{inspect(tool)} exited: #{inspect(reason)}")
       {:error, %{tool: tool, reason: inspect(reason)}}
@@ -39,19 +53,19 @@ defmodule HacktuiAgent.MCP.Dispatch do
     query_service = Keyword.get(opts, :query_service, QueryService)
     limit = Map.get(args, :limit, @default_limit)
 
-    {:ok, query_service.alert_queue() |> Enum.take(limit) |> Egress.mask()}
+    {:ok, Enum.take(query_service.alert_queue(), limit)}
   end
 
   def call(:get_sensor_logs, _args, opts) do
     query_service = Keyword.get(opts, :query_service, QueryService)
     repo = Keyword.get(opts, :repo, Repo)
-    {:ok, query_service.sensor_logs(repo) |> Egress.mask()}
+    {:ok, query_service.sensor_logs(repo)}
   end
 
   def call(:get_jido_responses, _args, opts) do
     query_service = Keyword.get(opts, :query_service, QueryService)
     repo = Keyword.get(opts, :repo, Repo)
-    {:ok, query_service.jido_responses(repo) |> Egress.mask()}
+    {:ok, query_service.jido_responses(repo)}
   end
 
   def call(:get_case_timeline, %{"case_id" => case_id}, opts),
@@ -60,7 +74,7 @@ defmodule HacktuiAgent.MCP.Dispatch do
   def call(:get_case_timeline, %{case_id: case_id}, opts) when is_binary(case_id) do
     query_service = Keyword.get(opts, :query_service, QueryService)
     repo = Keyword.get(opts, :repo, Repo)
-    {:ok, query_service.case_timeline(repo, case_id) |> Egress.mask()}
+    {:ok, query_service.case_timeline(repo, case_id)}
   end
 
   def call(:get_case_timeline, _args, _opts), do: {:error, :missing_case_id}
