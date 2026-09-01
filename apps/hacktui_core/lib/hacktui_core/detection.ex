@@ -30,7 +30,29 @@ defmodule HacktuiCore.Detection do
   def promote?(observation) do
     payload = payload_of(observation)
 
-    explicit_alert_id?(payload) or severity_of(payload) in @promote_severities
+    explicit_alert_id?(payload) or
+      severity_of(payload) in @promote_severities or
+      threat_severity(observation) in @promote_severities
+  end
+
+  @doc """
+  The severity of an attached threat-intel match, or `:unknown`.
+
+  Slice 02 deliberately excluded threat-driven promotion because the ThreatIntel
+  subsystem was dead — its GenServer was in no supervision tree, so its ETS table never
+  existed and every lookup raised. Slice 09 made it work, so the exclusion is lifted:
+  a high-confidence indicator match promotes even when the collector rated the
+  observation low-severity, which is the point of having threat intel at all.
+  """
+  @spec threat_severity(ObservationAccepted.t() | map()) :: atom()
+  def threat_severity(observation) do
+    observation
+    |> metadata_of()
+    |> get_either(:threat_context)
+    |> case do
+      %{} = context -> context |> get_either(:severity) |> normalize_severity()
+      _ -> :unknown
+    end
   end
 
   @doc """
@@ -92,6 +114,10 @@ defmodule HacktuiCore.Detection do
   end
 
   defp normalize_severity(_), do: :unknown
+
+  defp metadata_of(%ObservationAccepted{metadata: metadata}) when is_map(metadata), do: metadata
+  defp metadata_of(%{metadata: metadata}) when is_map(metadata), do: metadata
+  defp metadata_of(_), do: %{}
 
   defp payload_of(%ObservationAccepted{payload: payload}) when is_map(payload), do: payload
   defp payload_of(%{payload: payload}) when is_map(payload), do: payload

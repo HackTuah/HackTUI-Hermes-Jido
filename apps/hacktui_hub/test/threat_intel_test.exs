@@ -5,11 +5,13 @@ defmodule HacktuiHub.ThreatIntelTest do
   alias HacktuiHub.ThreatIntel.{Enricher, Indexer}
 
   setup do
-    case :ets.whereis(Indexer.table()) do
-      :undefined -> :ok
-      table -> :ets.delete_all_objects(table)
-    end
-
+    # Clears through the owning process. The table is :protected -- any process may read,
+    # only the Indexer may write -- so a direct :ets.delete_all_objects/1 from the test
+    # process now (correctly) fails. It was :public, which let any process in the VM,
+    # including any cookie-authenticated remote node, insert false detections or delete
+    # real ones.
+    {:ok, _} = Application.ensure_all_started(:hacktui_hub)
+    :ok = Indexer.load(keywords: [])
     :ok
   end
 
