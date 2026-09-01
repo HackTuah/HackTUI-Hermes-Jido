@@ -63,3 +63,15 @@ recordings/
 
 # Dialyzer PLTs: large binaries, machine- and version-specific. Rebuilt by CI cache.
 /priv/plts/
+
+# --- Internal working documents -------------------------------------------
+# Process and planning material: slice plans, findings, review sign-offs,
+# session handoffs, and the agent governance file. Kept on disk for the
+# maintainer, deliberately not published. Project documentation lives in
+# README.md, docs/, and the top-level design documents.
+/internal/
+/CLAUDE.md
+/AGENTS.md
+
+# Superseded pre-umbrella prototype. Preserved in git history; not shipped.
+/archive/

@@ -4,7 +4,7 @@
 # Design rule: FAIL CLOSED. A gate that cannot be measured is a failure, never a pass.
 # Every comparison validates its operands first; "pass" is never a fallthrough branch.
 #
-# Scope of what this can enforce (see docs/slices/01-governance-gates/REVIEW.md):
+# Scope of what this can enforce (see internal/slices/01-governance-gates/REVIEW.md):
 #   - It is a REGRESSION DETECTOR, not an authorization control.
 #   - `git commit --no-verify` bypasses it; no hook can prevent that.
 #   - `core.hooksPath` is per-clone local config; a clone that never ran `mix setup`
@@ -151,18 +151,31 @@ sb=$(grep -c '^File:' "$LOGDIR/sobelow.log") || sb=0     # grep -c prints 0 AND 
 note "sobelow" "advisory: $sb findings"
 
 # ---------- REVIEW RECORD (CLAUDE.md section 4) ----------
-# Hash pinned so it is reproducible across git configs. Excludes signoff files so that
-# adding the signoff does not invalidate the hash it certifies.
+# Sign-offs live in internal/slices/, which is deliberately unpublished and therefore
+# untracked, so this reads the working tree rather than the index.
+#
+# The cost, stated plainly: the sign-off record no longer travels in git history, so it
+# cannot be audited by anyone but the maintainer and a reviewer cannot verify after the
+# fact which diff was signed. Section 0 was already weak here -- the hash is written by
+# the same person it certifies -- and this makes it weaker. It buys a clean public
+# repository, not assurance.
+#
+# internal/ is excluded from the hash: it is untracked, so it never appears in a staged
+# diff anyway, and excluding it keeps the hash stable if that ever changes.
 staged_hash=$(git -c diff.noprefix=false -c diff.context=3 -c diff.algorithm=myers \
-  -c core.abbrev=40 diff --cached --binary --no-ext-diff --no-textconv -- . ':(exclude)docs/slices/*/REVIEW.signoff' | sha256sum | cut -d' ' -f1)
+  -c core.abbrev=40 diff --cached --binary --no-ext-diff --no-textconv \
+  -- . ':(exclude)internal/**' | sha256sum | cut -d' ' -f1)
 if ! printf '%s' "$staged_hash" | grep -qE '^[0-9a-f]{64}$'; then
   die "review signoff" "FAIL -- could not compute staged-diff hash; refusing to pass unmeasured"
 else
-  # Must be TRACKED, so the record survives in history rather than living untracked.
-  matched=$(git ls-files 'docs/slices/*/REVIEW.signoff' | while read -r f; do
-              grep -qF -- "$staged_hash" "$f" && echo "$f"; done)
+  matched=""
+  for f in internal/slices/*/REVIEW.signoff; do
+    [ -f "$f" ] || continue
+    grep -qF -- "$staged_hash" "$f" && { matched="$f"; break; }
+  done
+
   if [ -n "$matched" ]; then note "review signoff" "matches staged diff ($matched)"
-  else die "review signoff" "FAIL -- no tracked docs/slices/*/REVIEW.signoff contains $staged_hash"
+  else die "review signoff" "FAIL -- no internal/slices/*/REVIEW.signoff contains $staged_hash"
   fi
 fi
 
