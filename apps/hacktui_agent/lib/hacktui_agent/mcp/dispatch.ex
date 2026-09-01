@@ -1,4 +1,6 @@
 defmodule HacktuiAgent.MCP.Dispatch do
+  alias HacktuiAgent.MCP.Egress
+
   require Logger
 
   @moduledoc """
@@ -31,21 +33,25 @@ defmodule HacktuiAgent.MCP.Dispatch do
       {:error, %{tool: tool, reason: inspect(reason)}}
   end
 
-  def call(:get_latest_alerts, _args, opts) do
+  @default_limit 25
+
+  def call(:get_latest_alerts, args, opts) do
     query_service = Keyword.get(opts, :query_service, QueryService)
-    {:ok, query_service.alert_queue()}
+    limit = Map.get(args, :limit, @default_limit)
+
+    {:ok, query_service.alert_queue() |> Enum.take(limit) |> Egress.mask()}
   end
 
   def call(:get_sensor_logs, _args, opts) do
     query_service = Keyword.get(opts, :query_service, QueryService)
     repo = Keyword.get(opts, :repo, Repo)
-    {:ok, query_service.sensor_logs(repo)}
+    {:ok, query_service.sensor_logs(repo) |> Egress.mask()}
   end
 
   def call(:get_jido_responses, _args, opts) do
     query_service = Keyword.get(opts, :query_service, QueryService)
     repo = Keyword.get(opts, :repo, Repo)
-    {:ok, query_service.jido_responses(repo)}
+    {:ok, query_service.jido_responses(repo) |> Egress.mask()}
   end
 
   def call(:get_case_timeline, %{"case_id" => case_id}, opts),
@@ -54,7 +60,7 @@ defmodule HacktuiAgent.MCP.Dispatch do
   def call(:get_case_timeline, %{case_id: case_id}, opts) when is_binary(case_id) do
     query_service = Keyword.get(opts, :query_service, QueryService)
     repo = Keyword.get(opts, :repo, Repo)
-    {:ok, query_service.case_timeline(repo, case_id)}
+    {:ok, query_service.case_timeline(repo, case_id) |> Egress.mask()}
   end
 
   def call(:get_case_timeline, _args, _opts), do: {:error, :missing_case_id}

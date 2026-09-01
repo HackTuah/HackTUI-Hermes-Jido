@@ -19,7 +19,7 @@
     "deps_audit_advisories": "count of '^Name:' lines in `mix do deps.loadpaths + deps.audit`"
   },
   "hex_audit_advisories": 23,
-  "deps_audit_advisories": 13,
+  "deps_audit_advisories": 12,
   "_corrections": [
     {
       "key": "dialyzer_warnings",

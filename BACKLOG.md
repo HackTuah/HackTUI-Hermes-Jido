@@ -33,6 +33,22 @@ rather than fixed in slice 01.
   are what the gate uses, so this is cosmetic. An earlier draft of this entry claimed
   dialyzer could not run at all; that was false and is retracted (see slice 01 F3).
 
+## Found during slice 05 (MCP boundary)
+
+- **`to_json_value/1` stringifies atoms**, so booleans are type-mangled on every tool
+  response: `requires_approval` returns as `"true"`, not `true`. Fixing it changes the
+  shape of every MCP response and should land with a schema-conformance pass.
+- **`PrivacyMask` is too narrow to rely on.** It recognises only RFC1918 and loopback
+  IPv4. Public IPs, hostnames, DNS names, TLS SNI and URIs pass through unmasked, and
+  free text in `raw_message` is not redacted at all — so `MCP.Egress` masks by field
+  name over a weak primitive. Broaden the primitive.
+- **Prompt-injection channel remains open.** An adversary who can write bytes into a
+  monitored log or wire reaches `raw_message` (`hacktui_sensor.ex:261`), which
+  `get_sensor_logs` returns verbatim (`query_service.ex:461`) into an analyst's model
+  context. `THREAT_MODEL.md:37-45` names this risk; nothing yet mitigates it.
+- **`shutdown`/`exit` in `server.ex` are LSP methods, not MCP.** Dead code; real clients
+  terminate by closing stdin.
+
 ## Accepted limits of the slice-01 commit gate
 
 Reported by round-2 review, deliberately not fixed in slice 01. Each is a real residual

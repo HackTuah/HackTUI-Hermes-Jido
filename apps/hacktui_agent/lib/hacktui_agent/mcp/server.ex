@@ -1,4 +1,6 @@
 defmodule HacktuiAgent.MCP.Server do
+  alias HacktuiAgent.MCP.Schema
+
   @moduledoc false
 
   alias HacktuiAgent.MCP.Dispatch
@@ -70,7 +72,7 @@ defmodule HacktuiAgent.MCP.Server do
     case normalize_tool_name(name) do
       {:ok, tool_name} ->
         response =
-          case state.dispatch.(tool_name, normalize_arguments(arguments), state.dispatch_opts) do
+          case validate_and_dispatch(state, tool_name, arguments) do
             {:ok, payload} ->
               result(id, tool_success(payload))
 
@@ -152,23 +154,34 @@ defmodule HacktuiAgent.MCP.Server do
   defp normalize_tool_name(name) when is_atom(name), do: {:ok, name}
   defp normalize_tool_name(_name), do: :error
 
+  # The advertised schema is the contract. Validate the wire form -- string keys, as the
+  # client sent them -- before normalising, so `required` and `additionalProperties`
+  # mean what tools/list says they mean.
+  defp validate_and_dispatch(state, tool_name, arguments) do
+    case Schema.validate(arguments, input_schema(tool_name)) do
+      :ok ->
+        state.dispatch.(tool_name, normalize_arguments(arguments), state.dispatch_opts)
+
+      {:error, reason} ->
+        {:error, %{tool: tool_name, reason: "invalid arguments: #{reason}"}}
+    end
+  end
+
+  # Only reached with a map: Schema.validate/2 rejects anything else first.
   defp normalize_arguments(arguments) when is_map(arguments) do
     Enum.reduce(arguments, %{}, fn {key, value}, acc ->
       normalized_value = normalize_argument_value(key, value)
 
+      # Only recognised keys survive, and only as atoms. Previously both the string
+      # and atom form were inserted, and unrecognised string keys were retained --
+      # which let a caller smuggle fields past ProposalService's atom-keyed
+      # Map.put_new and win the collision during stringification.
       case normalize_argument_key(key) do
-        {:ok, atom_key} ->
-          acc
-          |> Map.put(key, normalized_value)
-          |> Map.put(atom_key, normalized_value)
-
-        :error ->
-          Map.put(acc, key, normalized_value)
+        {:ok, atom_key} -> Map.put(acc, atom_key, normalized_value)
+        :error -> acc
       end
     end)
   end
-
-  defp normalize_arguments(_), do: %{}
 
   defp normalize_argument_key(key) when is_atom(key), do: {:ok, key}
 
@@ -202,6 +215,10 @@ defmodule HacktuiAgent.MCP.Server do
     do: Enum.map(value, &to_json_value/1)
 
   defp normalize_argument_value(_key, value), do: value
+
+  @doc false
+  @spec input_schema_for(atom()) :: map()
+  def input_schema_for(tool_name), do: input_schema(tool_name)
 
   defp input_schema(:get_latest_alerts) do
     %{

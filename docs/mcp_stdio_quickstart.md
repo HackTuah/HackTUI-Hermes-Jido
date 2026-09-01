@@ -1,6 +1,8 @@
 # HackTUI MCP stdio quickstart
 
-Use the stable launcher below whenever you want Hermes or any other MCP client to connect to the HackTUI MCP server over stdio.
+Use the stable launcher below whenever you want Hermes or any other MCP client to connect to the HackTUI MCP server
+over stdio. Framing is newline-delimited JSON-RPC, per the MCP stdio binding; the older
+Content-Length form is still accepted on input.
 
 ## Authoritative launcher
 

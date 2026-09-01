@@ -445,10 +445,8 @@ HACKTUI_MCP_STDIO=1 ./bin/hacktui-mcp
 ## Quick initialize test
 
 ```bash
-body='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-05","capabilities":{},"clientInfo":{"name":"demo","version":"0.1"}}}'
-printf 'Content-Length: %s
-
-%s' "$(printf '%s' "$body" | wc -c)" "$body" | HACKTUI_MCP_STDIO=1 ./bin/hacktui-mcp
+body='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"demo","version":"0.1"}}}'
+printf '%s\n' "$body" | ./bin/hacktui-mcp
 ```
 
 You should receive a valid JSON-RPC initialize response.
@@ -957,10 +955,8 @@ mix hacktui.tui
 And if you want to test MCP:
 
 ```bash
-body='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-05","capabilities":{},"clientInfo":{"name":"demo","version":"0.1"}}}'
-printf 'Content-Length: %s
-
-%s' "$(printf '%s' "$body" | wc -c)" "$body" | HACKTUI_MCP_STDIO=1 ./bin/hacktui-mcp
+body='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"demo","version":"0.1"}}}'
+printf '%s\n' "$body" | ./bin/hacktui-mcp
 ```
 
 ---

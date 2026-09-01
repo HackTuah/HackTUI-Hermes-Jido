@@ -37,67 +37,81 @@ defmodule HacktuiAgent.MCP.Stdio do
     end
   end
 
+  # MCP stdio framing is newline-delimited JSON-RPC. The spec at 2024-11-05 -- the
+  # revision this server advertises -- and every revision since:
+  #
+  #   "Messages are delimited by newlines, and MUST NOT contain embedded newlines."
+  #
+  # This previously implemented LSP framing (Content-Length headers), so no conformant
+  # MCP client could complete a handshake. Content-Length is still accepted on read so
+  # existing callers keep working, but responses are always newline-delimited.
+  @max_line_bytes 1_048_576
+  @max_body_bytes 1_048_576
+
   defp read_message do
-    case read_headers("") do
+    case IO.binread(:stdio, :line) do
       :eof ->
         :eof
-
-      {:ok, headers} ->
-        with {:ok, content_length} <- parse_content_length(headers),
-             {:ok, body} <- read_body(content_length),
-             {:ok, decoded} <- Jason.decode(body) do
-          {:ok, decoded}
-        else
-          {:error, :unexpected_eof} -> :eof
-          {:error, _} = error -> error
-        end
-    end
-  end
-
-  defp read_headers(buffer) do
-    case IO.binread(:stdio, 1) do
-      :eof when buffer == "" ->
-        :eof
-
-      :eof ->
-        {:error, :unexpected_eof}
 
       {:error, reason} ->
         {:error, reason}
 
-      byte ->
-        next = buffer <> byte
+      line when byte_size(line) > @max_line_bytes ->
+        {:error, :frame_too_large}
 
-        if String.ends_with?(next, "\r\n\r\n") do
-          {:ok, next}
-        else
-          read_headers(next)
+      line ->
+        trimmed = String.trim_trailing(line, "\n") |> String.trim_trailing("\r")
+
+        cond do
+          trimmed == "" -> read_message()
+          content_length_header?(trimmed) -> read_legacy_framed(trimmed)
+          true -> decode(trimmed)
         end
     end
   end
 
-  defp parse_content_length(headers) do
-    headers
-    |> String.split("\r\n", trim: true)
-    |> Enum.find_value(fn line ->
-      case String.split(line, ":", parts: 2) do
-        [name, value] ->
-          if String.downcase(String.trim(name)) == "content-length" do
-            case Integer.parse(String.trim(value)) do
-              {length, ""} when length >= 0 -> {:ok, length}
-              _ -> {:error, :invalid_content_length}
-            end
-          else
-            nil
-          end
+  defp decode(body) do
+    case Jason.decode(body) do
+      {:ok, decoded} -> {:ok, decoded}
+      {:error, _} = error -> error
+    end
+  end
 
-        _ ->
-          nil
-      end
-    end)
-    |> case do
-      nil -> {:error, :missing_content_length}
-      result -> result
+  defp content_length_header?(line) do
+    line |> String.downcase() |> String.starts_with?("content-length:")
+  end
+
+  # Legacy LSP-style framing, retained for callers written against the old behaviour.
+  defp read_legacy_framed(first_line) do
+    with {:ok, length} <- parse_content_length(first_line),
+         :ok <- skip_remaining_headers(),
+         {:ok, body} <- read_body(length) do
+      decode(body)
+    else
+      {:error, :unexpected_eof} -> :eof
+      {:error, _} = error -> error
+    end
+  end
+
+  defp skip_remaining_headers do
+    case IO.binread(:stdio, :line) do
+      :eof -> :ok
+      {:error, reason} -> {:error, reason}
+      line -> if String.trim(line) == "", do: :ok, else: skip_remaining_headers()
+    end
+  end
+
+  defp parse_content_length(line) do
+    case String.split(line, ":", parts: 2) do
+      [_name, value] ->
+        case Integer.parse(String.trim(value)) do
+          {length, ""} when length >= 0 and length <= @max_body_bytes -> {:ok, length}
+          {length, ""} when length > @max_body_bytes -> {:error, :frame_too_large}
+          _ -> {:error, :invalid_content_length}
+        end
+
+      _ ->
+        {:error, :missing_content_length}
     end
   end
 
@@ -109,14 +123,10 @@ defmodule HacktuiAgent.MCP.Stdio do
     end
   end
 
+  # Always newline-delimited, per the MCP stdio binding. Jason never emits a raw
+  # newline inside a JSON scalar, so the "MUST NOT contain embedded newlines"
+  # requirement holds.
   defp write_message(message) do
-    payload = Jason.encode!(message)
-
-    IO.binwrite(:stdio, [
-      "Content-Length: ",
-      Integer.to_string(byte_size(payload)),
-      "\r\nContent-Type: application/json\r\n\r\n",
-      payload
-    ])
+    IO.binwrite(:stdio, [Jason.encode!(message), "\n"])
   end
 end

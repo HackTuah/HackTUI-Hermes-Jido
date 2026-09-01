@@ -1,0 +1,20 @@
+slice: 05-mcp-conformance-and-boundary
+staged-diff-sha256: 93741865ac46d0dbbc62d3750d02dbf3a59af7e93c21cdc02d39d5f66fbc4f7a
+review-rounds: 1 (of the analysis that produced this slice, not of this diff)
+verdicts: SOUND WITH CORRECTIONS
+
+An independent reviewer assessed the analysis behind this slice and returned SOUND WITH
+CORRECTIONS. It confirmed the framing and forgery findings, found stronger in-repo
+evidence than the author had (bin/hacktui-mcp-smoke hangs), settled that the 2024-11-05
+revision required newline framing so the claim needed no softening, and corrected four
+errors: an output reported but not observed, an unverified claim called "decisive", an
+overstated double-approval claim, and an omission -- masking absent from the MCP path,
+which is now F3 of this slice.
+
+Asserts: gates passed -- test 7 held (152 tests), credo 77 held, dialyzer 43 held,
+deps.audit 13 -> 12. Framing, forgery rejection and masking are all covered by tests
+that run the real binary.
+
+Does NOT assert: that any reviewer examined THIS diff. None has. Nor that the MCP
+server is secure -- it still has no authentication, no per-call audit, and PrivacyMask
+remains too narrow to rely on. See BACKLOG.md.

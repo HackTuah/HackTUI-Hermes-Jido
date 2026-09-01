@@ -26,7 +26,7 @@ defmodule HacktuiStore.MixProject do
     [
       {:hacktui_core, in_umbrella: true},
       {:ecto_sql, "~> 3.11"},
-      {:postgrex, "~> 0.19"},
+      {:postgrex, "~> 0.22.4"},
       {:jason, "~> 1.4"}
     ]
   end
