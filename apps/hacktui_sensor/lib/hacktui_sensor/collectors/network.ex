@@ -17,7 +17,25 @@ defmodule HacktuiSensor.Collectors.Network do
   require Logger
 
   alias HacktuiCore.Commands.AcceptObservation
+  alias HacktuiCore.Text
   alias HacktuiSensor.Forwarder
+
+  # tshark fields are hostnames, SNI, URIs and column text -- all attacker-influenced.
+  @max_field_bytes 512
+
+  # build_summary/8 concatenates several capped fields, and CommandHandlers.Alerting
+  # copies the summary verbatim into `title`, which the migration declares varchar(255).
+  # Capping fields alone does not bound the concatenation -- a single 512-byte URI
+  # overflows on its own -- and an oversized title raises Postgrex 22001, which
+  # Runtime.safely_persist/3 converts into {:ok, unpersisted_result(...)}. That let an
+  # attacker suppress their own alert by making it too long. The summary is what has to
+  # be bounded, and 200 leaves headroom under the column.
+  @max_summary_bytes 200
+
+  # A line with no newline accumulates in the port buffer before any sanitiser sees it,
+  # so line length -- and therefore memory -- is chosen by whoever is on the wire.
+  # Bounding the buffer is what makes the per-field cap meaningful.
+  @max_buffer_bytes 64 * 1024
 
   @restart_delay_ms 2_000
   @max_restart_delay_ms 60_000
@@ -128,7 +146,7 @@ defmodule HacktuiSensor.Collectors.Network do
         process_line(line, acc)
       end)
 
-    {:noreply, %{new_state | buffer: next_buffer}}
+    {:noreply, %{new_state | buffer: bound_buffer(next_buffer)}}
   end
 
   @impl true
@@ -243,7 +261,7 @@ defmodule HacktuiSensor.Collectors.Network do
 
       likely_error_line?(trimmed) ->
         emit_error_observation(trimmed, state)
-        %{state | last_error: trimmed}
+        %{state | last_error: Text.ingest_or_nil(trimmed) || "collector error"}
 
       true ->
         fields = String.split(trimmed, "\t")
@@ -268,6 +286,15 @@ defmodule HacktuiSensor.Collectors.Network do
           ] ->
             emit_observation(
               %{
+                # Checked per FIELD, never on the tab-joined line: the sanitiser
+                # rewrites \t to a space, and tshark's separator is tab, so scanning the
+                # whole line reported every benign flow as an injection attempt and
+                # floored it to "high".
+                injection_attempt?:
+                  Enum.any?(
+                    [dns_name, tls_sni, http_host, http_uri, info],
+                    &Text.suspicious?/1
+                  ),
                 src: sanitize_field(ipv4_src) || sanitize_field(ipv6_src),
                 dst: sanitize_field(ipv4_dst) || sanitize_field(ipv6_dst),
                 src_port: parse_port(tcp_src) || parse_port(udp_src),
@@ -287,13 +314,28 @@ defmodule HacktuiSensor.Collectors.Network do
 
           _ ->
             if suspicious_unparsed_line?(trimmed) do
-              emit_error_observation("unparsed tshark output: #{trimmed}", state)
-              %{state | last_error: trimmed}
+              # Do not inline the line. It failed field parsing, so it carries no
+              # structure worth preserving, and emitting it here put raw attacker
+              # bytes into raw_message at severity "high". Report its shape; the
+              # bytes stay recoverable through the digest.
+              emit_error_observation(unparsed_line_report(trimmed), state)
+              %{state | last_error: Text.ingest_or_nil(trimmed) || "unparsed output"}
             else
               state
             end
         end
     end
+  end
+
+  defp bound_buffer(buffer) when byte_size(buffer) <= @max_buffer_bytes, do: buffer
+
+  defp bound_buffer(buffer) do
+    Logger.warning(
+      "[hacktui_sensor] discarding #{byte_size(buffer)} bytes of unterminated capture " <>
+        "output (limit #{@max_buffer_bytes})"
+    )
+
+    ""
   end
 
   defp emit_observation(event, state) do
@@ -307,12 +349,33 @@ defmodule HacktuiSensor.Collectors.Network do
       site = pick_site(event)
       method = normalize_blank(event.http_method)
       path = normalize_blank(event.http_uri)
-      severity = classify_traffic(proto, event.info, service, site, event)
+      # Telemetry carrying terminal control sequences is not normal traffic, and
+      # sanitising it necessarily changes the text a keyword classifier reads
+      # ("\e[password" is a well-formed CSI with final byte "p", leaving "assword").
+      #
+      # Floored to "medium", NOT "high", and the flag is carried in metadata. High would
+      # promote to an alert via Detection.promote?/1, and there is no rate limit
+      # anywhere in this repo -- so one control byte per packet would mean one alert per
+      # packet, with title-based dedup defeated by a single varying byte in the URI.
+      # That trades an evasion that cost the attacker their own alert for one that costs
+      # the analyst the whole queue. Recording it at medium keeps the observation
+      # queryable without generating alerts.
+      #
+      # Keyword classification is inherently evadable by anyone who controls the field;
+      # this is not a detection engine (see detection.ex's own moduledoc).
+      severity =
+        if Map.get(event, :injection_attempt?, false),
+          do: floor_severity(classify_traffic(proto, event.info, service, site, event)),
+          else: classify_traffic(proto, event.info, service, site, event)
 
       src = event.src || "0.0.0.0"
       dst = event.dst || "0.0.0.0"
 
-      summary = build_summary(src, dst, proto, service, method, path, site, event)
+      summary =
+        src
+        |> build_summary(dst, proto, service, method, path, site, event)
+        |> Text.ingest_or_nil(max_bytes: @max_summary_bytes)
+        |> Kernel.||("network flow")
 
       payload = %{
         "src" => src,
@@ -347,6 +410,8 @@ defmodule HacktuiSensor.Collectors.Network do
         metadata: %{
           collector: :packet_capture,
           severity: severity,
+          # Carried so the attempt is queryable even though it does not raise an alert.
+          injection_attempt?: Map.get(event, :injection_attempt?, false),
           occurred_at: DateTime.to_iso8601(now),
           observed_at: DateTime.to_iso8601(now),
           source_node: state.source_node,
@@ -367,6 +432,13 @@ defmodule HacktuiSensor.Collectors.Network do
   end
 
   defp emit_error_observation(msg, state) do
+    # All three callers pass attacker-influenceable bytes -- tshark stderr, an
+    # unparsed capture line, and a spawn failure -- and this observation is emitted
+    # at severity "high", so it is auto-promoted to an alert. One choke point.
+    # Bounded to the summary budget, not the field budget: this msg is concatenated
+    # behind a "NETWORK ERROR: " prefix and the result becomes the alert title, which
+    # is varchar(255). Capping at @max_field_bytes produced a 527-byte title.
+    msg = Text.ingest_or_nil(msg, max_bytes: @max_summary_bytes - 40) || "unavailable"
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     summary =
@@ -390,7 +462,9 @@ defmodule HacktuiSensor.Collectors.Network do
         "proto" => "SYSTEM.ERROR",
         "service" => nil,
         "site" => nil,
-        "summary" => "NETWORK ERROR: #{msg}",
+        "summary" =>
+          Text.ingest_or_nil("NETWORK ERROR: #{msg}", max_bytes: @max_summary_bytes) ||
+            "NETWORK ERROR",
         "severity" => "high"
       },
       metadata: %{
@@ -532,6 +606,9 @@ defmodule HacktuiSensor.Collectors.Network do
     end
   end
 
+  defp floor_severity(severity) when severity in ["high", "critical"], do: severity
+  defp floor_severity(_severity), do: "medium"
+
   defp classify_traffic(proto, info, service, site, event) do
     info_down = String.downcase(info || "")
     site_down = String.downcase(site || "")
@@ -598,6 +675,11 @@ defmodule HacktuiSensor.Collectors.Network do
     end)
   end
 
+  defp unparsed_line_report(line) do
+    digest = line |> Text.original_sha256() |> String.slice(0, 16)
+    "unparsed tshark output (#{byte_size(line)} bytes, sha256=#{digest})"
+  end
+
   defp suspicious_unparsed_line?(line) do
     String.length(line) > 0 and not String.contains?(line, "\t")
   end
@@ -623,13 +705,10 @@ defmodule HacktuiSensor.Collectors.Network do
   defp sanitize_field(nil), do: nil
 
   defp sanitize_field(value) do
-    value
-    |> to_string()
-    |> String.trim()
-    |> case do
-      "" -> nil
+    case Text.ingest_or_nil(value, max_bytes: @max_field_bytes) do
+      nil -> nil
       "(null)" -> nil
-      value -> value
+      cleaned -> cleaned
     end
   end
 

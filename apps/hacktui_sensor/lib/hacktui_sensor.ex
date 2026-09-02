@@ -4,6 +4,7 @@ defmodule HacktuiSensor do
   """
 
   alias HacktuiCore.Commands.AcceptObservation
+  alias HacktuiCore.Text
   alias HacktuiSensor.Forwarder
 
   @collectors [:journald, :process_signals, :packet_capture]
@@ -215,7 +216,7 @@ defmodule HacktuiSensor do
         |> maybe_emit_observation(state)
       end)
 
-      {:noreply, %{state | buffer: next_buffer}}
+      {:noreply, %{state | buffer: bound_buffer(next_buffer)}}
     end
 
     def handle_info({_port, {:exit_status, _status}}, state) do
@@ -264,11 +265,48 @@ defmodule HacktuiSensor do
       end
     end
 
+    # Line length is chosen by whoever writes to the journal, and the buffer fills
+    # before any sanitiser sees it.
+    defp bound_buffer(buffer) when byte_size(buffer) <= 64 * 1024, do: buffer
+
+    defp bound_buffer(buffer) do
+      Logger.warning(
+        "[hacktui_sensor] discarding #{byte_size(buffer)} bytes of unterminated journal line"
+      )
+
+      ""
+    end
+
     defp maybe_emit_observation("", _state), do: :ok
 
-    defp maybe_emit_observation(line, state) do
+    defp maybe_emit_observation(raw_line, state) do
+      # A journald line is untrusted: any local process that can write to the journal
+      # chooses these bytes, and they previously reached raw_message, summary and the
+      # payload with no sanitiser at all. Classify the cleaned text so what drives the
+      # decision is the same text that gets stored and rendered.
+      case Text.ingest(raw_line) do
+        {:ok, line} ->
+          emit_journal_observation(line, state)
+
+        {:error, reason} ->
+          # Never drop silently. A gap an operator can see is categorically different
+          # from one they cannot, and the digest keeps the original bytes referenceable.
+          Logger.warning(
+            "[hacktui_sensor] dropped journal line (#{reason}, #{byte_size(raw_line)} bytes, " <>
+              "sha256=#{String.slice(Text.original_sha256(raw_line), 0, 16)})"
+          )
+
+          :ok
+      end
+    end
+
+    defp emit_journal_observation(line, state) do
       now = DateTime.utc_now() |> DateTime.truncate(:second)
-      {kind, summary, severity} = classify_line(line)
+      {kind, raw_summary, severity} = classify_line(line)
+
+      # Bounded for the same reason as the network collector: the summary becomes the
+      # alert title, and `title` is varchar(255).
+      summary = Text.ingest_or_nil(raw_summary, max_bytes: 200) || "journal event"
 
       command = %AcceptObservation{
         observation_id: unique_id("journal"),

@@ -1,0 +1,18 @@
+# id	file	pattern	replacement	test_path
+# Row 1 must be CANARY: a deliberately absent pattern. If the harness does
+# not hard-abort on it, the harness is broken and no result is evidence.
+CANARY	apps/hacktui_core/lib/hacktui_core/text.ex	__no_such_token_9f2a__		apps/hacktui_core/test/text_test.exs
+renderer_sgr_allowlist	apps/hacktui_tui/lib/hacktui_tui/live_dashboard_view.ex	defp sgr?(sequence), do: sequence in @emitted_sgr	defp sgr?(_sequence), do: true	apps/hacktui_tui/test/terminal_sink_test.exs
+renderer_c1_string	apps/hacktui_tui/lib/hacktui_tui/live_dashboard_view.ex	when introducer in [0x90, 0x98, 0x9D, 0x9E, 0x9F],\n       do: take_visible(drop_to_string_terminator(rest), remaining, acc)	when introducer in [],\n       do: take_visible(rest, remaining, acc)	apps/hacktui_tui/test/terminal_sink_test.exs
+renderer_c0_del	apps/hacktui_tui/lib/hacktui_tui/live_dashboard_view.ex	       when byte < 0x20 or byte == 0x7F,\n       do: take_visible(rest, remaining, acc)	       when byte < 0x00,\n       do: take_visible(rest, remaining, acc)	apps/hacktui_tui/test/terminal_sink_test.exs
+renderer_c1_csi	apps/hacktui_tui/lib/hacktui_tui/live_dashboard_view.ex	defp take_visible(<<0xC2, 0x9B, rest::binary>>, remaining, acc) do	defp take_visible(<<0xC2, 0x9B, rest::binary>>, remaining, acc) when false do	apps/hacktui_tui/test/terminal_sink_test.exs
+text_c1_strip	apps/hacktui_core/lib/hacktui_core/text.ex	defp strip([cp | rest], acc, run) when is_c1(cp), do: strip(rest, acc, run)	defp strip([cp | rest], acc, run) when is_c1(cp) and false, do: strip(rest, acc, run)	apps/hacktui_core/test/text_test.exs
+text_combining_bound	apps/hacktui_core/lib/hacktui_core/text.ex	    if run < @max_combining_run,\n      do: strip(rest, [cp | acc], run + 1),\n      else: strip(rest, acc, run)	    strip(rest, [cp | acc], run)	apps/hacktui_core/test/text_test.exs
+text_clamp	apps/hacktui_core/lib/hacktui_core/text.ex	defp clamp_raw(value, limit), do: binary_part(value, 0, limit)	defp clamp_raw(value, _limit), do: value	apps/hacktui_core/test/text_test.exs
+text_csi_scan	apps/hacktui_core/lib/hacktui_core/text.ex	@max_csi_scan 64	@max_csi_scan 1	apps/hacktui_core/test/text_test.exs
+text_escape_sequences	apps/hacktui_core/lib/hacktui_core/text.ex	    |> drop_escape_sequences()\n    |> strip_dangerous()	    |> strip_dangerous()	apps/hacktui_core/test/text_test.exs
+sensor_summary_cap	apps/hacktui_sensor/lib/hacktui_sensor/collectors/network.ex	@max_summary_bytes 200	@max_summary_bytes 1_000_000	apps/hacktui_sensor/test/collectors/
+sensor_field_cap	apps/hacktui_sensor/lib/hacktui_sensor/collectors/network.ex	@max_field_bytes 512	@max_field_bytes 1_000_000	apps/hacktui_sensor/test/collectors/
+sensor_buffer_bound	apps/hacktui_sensor/lib/hacktui_sensor/collectors/network.ex	@max_buffer_bytes 64 * 1024	@max_buffer_bytes 1_073_741_824	apps/hacktui_sensor/test/collectors/
+sensor_injection_floor	apps/hacktui_sensor/lib/hacktui_sensor/collectors/network.ex	          do: floor_severity(classify_traffic(proto, event.info, service, site, event)),	          do: classify_traffic(proto, event.info, service, site, event),	apps/hacktui_sensor/test/collectors/
+journald_summary_cap	apps/hacktui_sensor/lib/hacktui_sensor.ex	summary = Text.ingest_or_nil(raw_summary, max_bytes: 200) || "journal event"	summary = raw_summary	apps/hacktui_sensor/test/collectors/

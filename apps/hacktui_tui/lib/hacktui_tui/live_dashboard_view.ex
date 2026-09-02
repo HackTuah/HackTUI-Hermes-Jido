@@ -1,6 +1,7 @@
 defmodule HacktuiTui.LiveDashboardView do
   @moduledoc false
 
+  alias HacktuiCore.Text
   alias HacktuiHub.PrivacyMask
 
   @reset "\e[0m"
@@ -484,7 +485,7 @@ defmodule HacktuiTui.LiveDashboardView do
     |> Enum.flat_map(fn row ->
       left = truncate_plain(source_label(row), 18)
       right = truncate_plain(destination_label(row), max(inner - 36, 6))
-      service = row.service || "FLOW"
+      service = Text.for_terminal(row.service || "FLOW")
       sev_dot = severity_dot(row.severity)
       count = "x#{row.count}"
 
@@ -508,7 +509,7 @@ defmodule HacktuiTui.LiveDashboardView do
       sev_dot = severity_dot(row.severity)
       left = source_label(row)
       right = destination_label(row)
-      service = row.service || "FLOW"
+      service = Text.for_terminal(row.service || "FLOW")
       text = " #{sev_dot} #{left} -> #{right}  #{service} x#{row.count}"
       truncate_rendered(text, inner)
     end)
@@ -759,15 +760,15 @@ defmodule HacktuiTui.LiveDashboardView do
     end
   end
 
-  defp source_label(row), do: row.src
+  defp source_label(row), do: Text.for_terminal(row.src)
 
   defp destination_label(row) do
-    site = normalize_blank(row.site)
+    site = row |> Map.get(:site) |> normalize_blank() |> then(&(&1 && Text.for_terminal(&1)))
 
     base =
       cond do
-        present?(site) -> "#{site} #{row.dst}"
-        true -> row.dst
+        present?(site) -> "#{site} #{Text.for_terminal(row.dst)}"
+        true -> Text.for_terminal(row.dst)
       end
 
     if row.dst_port do
@@ -888,7 +889,65 @@ defmodule HacktuiTui.LiveDashboardView do
   defp apply_style(text, color), do: color <> text <> @reset
 
   defp truncate_plain(_text, width) when width <= 0, do: ""
-  defp truncate_plain(text, width), do: text |> to_string() |> String.slice(0, width)
+
+  # Every untrusted string on the dashboard -- alert title, observation summary,
+  # site, service -- reaches the terminal through here. Ingest already strips control
+  # bytes; this is the renderer keeping its own guarantee rather than trusting that
+  # every upstream path remembered to.
+  defp truncate_plain(text, width), do: text |> Text.for_terminal() |> take_cells(width, "")
+
+  # Terminal CELLS, not codepoints and not graphemes.
+  #
+  # String.slice/3 counts graphemes and take_visible/3 counted codepoints, but a CJK
+  # ideograph or an emoji occupies two columns. A row budgeted at 160 rendered 201 cells
+  # wide, wrapped, and shifted every following row -- console forgery with no control
+  # byte anywhere. The ranges are the East Asian Wide/Fullwidth blocks plus emoji: a
+  # documented approximation of wcwidth, not a full Unicode width table.
+  defp take_cells(<<>>, _remaining, acc), do: acc
+  defp take_cells(_text, remaining, acc) when remaining <= 0, do: acc
+
+  defp take_cells(<<char::utf8, rest::binary>>, remaining, acc) do
+    case cell_width(char) do
+      width when width > remaining -> acc
+      width -> take_cells(rest, remaining - width, acc <> <<char::utf8>>)
+    end
+  end
+
+  defp take_cells(<<_byte, rest::binary>>, remaining, acc), do: take_cells(rest, remaining, acc)
+
+  # Terminal cell width. Deliberately CONSERVATIVE: the ranges are broader than the
+  # strict East Asian Wide/Fullwidth set, so a few narrow symbols count as two.
+  #
+  # That bias is the safe one. Over-counting truncates a row slightly early;
+  # under-counting lets it exceed its budget, wrap, and shift every following row --
+  # which is the frame-forgery this exists to prevent. The first version of this table
+  # covered only two emoji blocks, so ROCKET, BLACK LARGE SQUARE, WATCH and Hangul
+  # Jamo Extended-A all rendered 241 cells inside a 160-column frame.
+  defp cell_width(char) when char >= 0x1100 and char <= 0x115F, do: 2
+  defp cell_width(char) when char >= 0x2300 and char <= 0x23FF, do: 2
+  defp cell_width(char) when char >= 0x25A0 and char <= 0x27BF, do: 2
+  defp cell_width(char) when char >= 0x2B00 and char <= 0x2BFF, do: 2
+  defp cell_width(char) when char >= 0x2E80 and char <= 0xA4CF, do: 2
+  defp cell_width(char) when char >= 0xA960 and char <= 0xA97F, do: 2
+  defp cell_width(char) when char >= 0xAC00 and char <= 0xD7A3, do: 2
+  defp cell_width(char) when char >= 0xF900 and char <= 0xFAFF, do: 2
+  defp cell_width(char) when char >= 0xFE10 and char <= 0xFE19, do: 2
+  defp cell_width(char) when char >= 0xFE30 and char <= 0xFE6F, do: 2
+  defp cell_width(char) when char >= 0xFF00 and char <= 0xFF60, do: 2
+  defp cell_width(char) when char >= 0xFFE0 and char <= 0xFFE6, do: 2
+  defp cell_width(char) when char >= 0x16FE0 and char <= 0x1B2FB, do: 2
+  defp cell_width(char) when char >= 0x1F000 and char <= 0x1FAFF, do: 2
+  defp cell_width(char) when char >= 0x20000 and char <= 0x3FFFD, do: 2
+
+  defp cell_width(_char), do: 1
+
+  @doc false
+  # Test seam. Every path that reaches truncate_rendered/2 today sanitises its untrusted
+  # leaves first, so the escape handling in take_visible/3 is a redundant second layer
+  # that render/3 cannot exercise. It is kept deliberately -- it is what catches a future
+  # renderer that forgets to sanitise a leaf -- but a defense nothing can reach is a
+  # defense nothing verifies, so it is exposed here and tested directly.
+  def __clip_rendered__(text, width), do: truncate_rendered(text, width)
 
   defp truncate_rendered(_text, width) when width <= 0, do: ""
   defp truncate_rendered("", _width), do: ""
@@ -904,14 +963,127 @@ defmodule HacktuiTui.LiveDashboardView do
 
   defp take_visible(<<"\e[", rest::binary>>, remaining, acc) do
     {ansi, tail} = take_ansi_sequence(rest, "\e[")
-    take_visible(tail, remaining, acc <> ansi)
+
+    # Preserve only SGR -- the colour/attribute sequences this module emits. Every
+    # other CSI is a cursor move, erase or mode change an attacker could use to forge
+    # console content, so it is dropped rather than passed through.
+    if sgr?(ansi),
+      do: take_visible(tail, remaining, acc <> ansi),
+      else: take_visible(tail, remaining, acc)
   end
+
+  # OSC (\e]), DCS (\eP), APC (\e_), PM (\e^) and bare ESC, dropped with their
+  # payloads. There was no clause for these, so "\e]52;c;<base64>\a" fell through to
+  # the utf8 clause below and the ESC was emitted verbatim -- OSC 52 writes the
+  # operator's clipboard.
+  defp take_visible(<<"\e", rest::binary>>, remaining, acc),
+    do: take_visible(drop_escape_payload(rest), remaining, acc)
+
+  # C1 CSI (U+009B) is a control introducer that contains no ESC byte at all, so the
+  # clauses above never see it. Never legitimate in our own output, so always dropped.
+  defp take_visible(<<0xC2, 0x9B, rest::binary>>, remaining, acc) do
+    {_sequence, tail} = take_ansi_sequence(rest, "")
+    take_visible(tail, remaining, acc)
+  end
+
+  # 8-bit C1 *string* introducers: DCS (0x90), SOS (0x98), OSC (0x9D), PM (0x9E),
+  # APC (0x9F). Each opens a payload that runs to a string terminator, so dropping only
+  # the introducer leaves that payload rendering as visible text -- `<<0xC2, 0x9D>> <>
+  # "52;c;cHduZWQ=" <> BEL` produced `"52;c;cHduZWQ="` on screen.
+  #
+  # `Text.ingest/2` has always handled these (`text.ex:264`); this layer did not. That
+  # asymmetry is the whole defect: the renderer exists to catch a path that forgot to
+  # sanitise, and it had a hole for exactly the class it was built to stop.
+  defp take_visible(<<0xC2, introducer, rest::binary>>, remaining, acc)
+       when introducer in [0x90, 0x98, 0x9D, 0x9E, 0x9F],
+       do: take_visible(drop_to_string_terminator(rest), remaining, acc)
+
+  # The remaining C1 controls, encoded as UTF-8.
+  defp take_visible(<<0xC2, byte, rest::binary>>, remaining, acc)
+       when byte >= 0x80 and byte <= 0x9F,
+       do: take_visible(rest, remaining, acc)
+
+  # C0 and DEL. CR matters most: it re-homes the cursor to column 0, letting untrusted
+  # text overwrite the row already rendered -- the same forgery primitive as CSI 2J,
+  # reachable without any escape sequence. ESC is also < 0x20, so this clause must stay
+  # below the ESC clauses above.
+  defp take_visible(<<byte, rest::binary>>, remaining, acc)
+       when byte < 0x20 or byte == 0x7F,
+       do: take_visible(rest, remaining, acc)
+
+  # Bidi overrides and zero-width characters. These are *printable*, so neither the
+  # escape clauses nor the C0/C1 clauses above catch them, yet a bidi override reorders
+  # a rendered row against its stored bytes (Trojan Source) and zero-width characters
+  # are invisible padding. They occupy no meaningful column, so `remaining` is not
+  # decremented.
+  defp take_visible(<<char::utf8, rest::binary>>, remaining, acc)
+       when char in [
+              0x200B,
+              0x200C,
+              0x200D,
+              0x200E,
+              0x200F,
+              0x061C,
+              0x180E,
+              0x2028,
+              0x2029,
+              0x2060,
+              0xFEFF
+            ] or (char >= 0x2061 and char <= 0x2064) or (char >= 0xFFF9 and char <= 0xFFFB) or
+              (char >= 0x202A and char <= 0x202E) or
+              (char >= 0x2066 and char <= 0x2069),
+       do: take_visible(rest, remaining, acc)
 
   defp take_visible(<<char::utf8, rest::binary>>, remaining, acc) do
-    take_visible(rest, remaining - 1, acc <> <<char::utf8>>)
+    case cell_width(char) do
+      width when width > remaining -> acc
+      width -> take_visible(rest, remaining - width, acc <> <<char::utf8>>)
+    end
   end
 
+  # Invalid UTF-8 would otherwise raise here rather than render.
+  defp take_visible(<<_byte, rest::binary>>, remaining, acc),
+    do: take_visible(rest, remaining, acc)
+
+  # A real allowlist: the exact sequences this module emits, not "anything SGR-shaped".
+  #
+  # The shape check was too weak. \e[8m (conceal) and \e[7m (reverse) are well-formed
+  # SGR, so untrusted text could blank or invert the remainder of a row on a security
+  # console. Membership in a closed set cannot be widened by an attacker.
+  @emitted_sgr [
+    @reset,
+    @bold,
+    @fg_purple,
+    @fg_red,
+    @fg_yellow,
+    @fg_green,
+    @fg_cyan,
+    @fg_base,
+    @fg_white,
+    @fg_dim,
+    @bg_selected
+  ]
+
+  defp sgr?(sequence), do: sequence in @emitted_sgr
+
+  defp drop_escape_payload(<<introducer, rest::binary>>) when introducer in ~c"]PX^_",
+    do: drop_to_string_terminator(rest)
+
+  defp drop_escape_payload(<<_byte, rest::binary>>), do: rest
+  defp drop_escape_payload(<<>>), do: <<>>
+
+  defp drop_to_string_terminator(<<>>), do: <<>>
+  defp drop_to_string_terminator(<<0x07, rest::binary>>), do: rest
+  defp drop_to_string_terminator(<<"\e\\", rest::binary>>), do: rest
+  defp drop_to_string_terminator(<<_byte, rest::binary>>), do: drop_to_string_terminator(rest)
+
   defp take_ansi_sequence(<<>>, acc), do: {acc, ""}
+
+  # Invalid UTF-8 after an introducer would otherwise raise here and kill the render
+  # loop -- render/3 is called straight from HacktuiTui.loop/3, so the console dies.
+  # A renderer that crashes on the input class it exists to sanitise is not a defense.
+  defp take_ansi_sequence(<<byte, rest::binary>>, acc) when byte >= 0x80,
+    do: take_ansi_sequence(rest, acc <> <<byte>>)
 
   defp take_ansi_sequence(<<char::utf8, rest::binary>>, acc) do
     next = acc <> <<char::utf8>>
@@ -928,10 +1100,13 @@ defmodule HacktuiTui.LiveDashboardView do
   defp ansi_terminator?(_), do: false
 
   defp visible_length(text) do
+    # Cells, to agree with take_cells/3 and take_visible/3. String.length/1 counts
+    # graphemes, so padding computed from it drifts from truncation on wide characters.
     text
     |> to_string()
     |> String.replace(~r/\e\[[0-9;?]*[A-Za-z]/, "")
-    |> String.length()
+    |> String.to_charlist()
+    |> Enum.reduce(0, fn char, total -> total + cell_width(char) end)
   end
 
   defp pad_plain(value, width) do

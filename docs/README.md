@@ -18,6 +18,7 @@ conclusions from anything else here.
 | [`PURPLE_TEAM_MODEL.md`](../PURPLE_TEAM_MODEL.md) | The validation loop the platform is built around |
 | [`REPLAY_ENGINE.md`](../REPLAY_ENGINE.md) | Deterministic replay, and what remains an architecture goal |
 | [`DECISIONS.md`](../DECISIONS.md) | Decisions taken and why |
+| [`residuals.md`](residuals.md) | Known gaps deliberately not closed, with the evidence that made them acceptable |
 | [`ROADMAP.md`](../ROADMAP.md) | Direction, distinguished from implemented capability |
 
 ## Running it
