@@ -33,10 +33,11 @@ that may only decrease, with `_corrections` as the audit record for any sanction
 
 Until then, treat a clean CI run as saying nothing about dependency vulnerabilities.
 
-Two in-tree comments still say this work is **slice 16** — `tools/gate.sh:270,273`
-("Promotion to a ratchet is slice 16", "not blocking until slice 16"). Slice 16 is the
-release and does not include it. Those comments are corrected in the next commit that touches
-that file; noted here so the disagreement is recorded rather than found later.
+Two in-tree comments in `tools/gate.sh` used to assign this work to slice 16, which is the
+release and does not include it. This item recorded that disagreement, and the next commit to
+touch that file corrected the comments to slice 18, so the code and the backlog now agree.
+Re-derive with `grep -n "slice 18" tools/gate.sh` rather than trusting a line number here —
+the surrounding code moves.
 
 ## 2. The integration job is advisory, and most of its failures are the job's fault
 
@@ -146,13 +147,13 @@ trailer and is hard-failed by `tools/gate.sh attestation` ("carries no `Reviewed
 trailer"). The gap is a missing slice reference on a commit that cannot pass CI, not a way to
 land unattested work.
 
-## 6. The `Gate - test ratchet` job name will outlive the ratchet
+## 6. The `Gate - test ratchet` job name has outlived the ratchet
 
-The test gate's baseline is **0** and has been since slice 13. `.claude/gate-baseline.json`'s
-own comment says to delete a clean entry and make that gate hard-blocking, and slice 16 does
-exactly that in its next commit.
+The test gate is **hard-blocking**: its baseline reached 0 in slice 13, and slice 16 retired
+the entry from `.claude/gate-baseline.json` — what that file's own comment says to do with a
+clean gate. Only 0 passes now; there is no baseline left to raise.
 
-The CI job **keeps the name `Gate - test ratchet`** afterwards, and that is the item recorded
+The CI job **keeps the name `Gate - test ratchet`**, and that is the item recorded
 here: the string is a **required status check** in the branch ruleset, and a required context
 that never reports leaves every pull request pending forever. Renaming it means editing the
 ruleset and the workflow together, in that order, and only the repository owner can edit the
@@ -208,9 +209,20 @@ is neither blocking nor present in CI:
   request.
 
 It is the **third** advisory gate alongside the two dependency audits, and the only §4 gate
-with no CI presence whatsoever. The tool's own caveat still applies — there is no Phoenix application
-in this umbrella, so much of what it checks does not exist here — which is an argument for
-scoping or dropping it deliberately, not for leaving it looking enforced.
+with no CI presence whatsoever.
+
+**It currently reports 7 findings**, measured by the commit hook on the slice 16 baseline-
+retirement commit. That number is recorded now so it cannot grow quietly while the gate is
+unenforced: **when slice 18 picks this up, 7 is the initial ratchet baseline**, not a starting
+point to be re-measured later against whatever the number has drifted to. Re-derive it with
+`for a in apps/*/; do mix sobelow --root "$a" --exit; done` and count `^File:` lines.
+
+Making it a **required** check is a ruleset edit, so the PLAN for that slice must carry the
+copy-paste for the change and name the before/after context, per `CLAUDE.md` §4c.
+
+The tool's own caveat still applies — there is no Phoenix application in this umbrella, so
+much of what it checks does not exist here — which is an argument for scoping or dropping it
+deliberately, not for leaving it looking enforced.
 
 ## 10. `PrivacyMask` recognises only RFC1918 and loopback IPv4
 

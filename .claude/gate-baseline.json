@@ -2,11 +2,9 @@
   "_comment": "Ratchet baseline for CLAUDE.md section 4 gates that cannot pass yet. These counts may only DECREASE. Raising a number is a regression and must be rejected in review. Delete an entry once its gate is clean, and make that gate hard-blocking.",
   "_established": "2026-08-31",
   "_slice": "01-governance-gates",
-  "test_failures": 0,
   "credo_issues": 76,
   "dialyzer_warnings": 43,
   "_targets": {
-    "test_failures": "2 remain: ReadModelsTest (alert_queue_query selects columns AuditEvent does not declare, so it cannot execute) and the environment-dependent sensor timing flake, which occasionally passes",
     "credo_issues": "reduced opportunistically; no slice owns it yet",
     "dialyzer_warnings": "no slice owns reduction yet; gate is ratcheted",
     "hex_audit_advisories": "advisory only; no ratchet yet -- see BACKLOG"
@@ -20,6 +18,14 @@
   },
   "hex_audit_advisories": 20,
   "deps_audit_advisories": 12,
+  "_retired": [
+    {
+      "retired_key": "test_failures",
+      "retired_at": 0,
+      "slice": "16-release-v0-1-0",
+      "reason": "Reached 0 in slice 13 and held there. This file's own _comment says to delete a clean entry and make that gate hard-blocking; this is that deletion. tools/gate.sh now scores the test gate with hard_zero -- only 0 passes, and there is no baseline to raise. The _corrections entry recording 2 -> 0 stays: it is the evidence of how the gate got clean, and deleting it would erase the audit trail. A ratchet at 0 was materially weaker than a hard gate, because baseline_gate permits a raise with a matching _corrections entry; that path is now closed for tests. The CI job keeps the name 'Gate - test ratchet' because it is a required status check in ruleset 22066749 and renaming it would leave a required context that never reports; the rename is owner work, tracked in BACKLOG.md."
+    }
+  ],
   "_corrections": [
     {
       "key": "dialyzer_warnings",

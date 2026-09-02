@@ -68,6 +68,17 @@ jobs:
     name: Gate - test ratchet
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # THE NAME IS HISTORICAL. Since slice 16 this gate is HARD-BLOCKING, not a ratchet: the
+    # baseline reached 0 in slice 13 and its entry was retired from .claude/gate-baseline.json,
+    # as that file's own _comment requires. tools/gate.sh scores it with hard_zero -- only 0
+    # passes, and there is no baseline to raise.
+    #
+    # The name stays because "Gate - test ratchet" is a REQUIRED STATUS CHECK in ruleset
+    # 22066749. Renaming a job renames its check context, and a required context that never
+    # reports stays pending forever, blocking every pull request. The rename is therefore a
+    # two-part change -- ruleset first, then this file -- and only the repository owner can
+    # edit the ruleset. Tracked in BACKLOG.md; see CLAUDE.md 4c.
+    #
     # No postgres service: the default suite runs with HACKTUI_START_REPO unset and never
     # connects. DB-backed tests are the `integration` job.
     steps:

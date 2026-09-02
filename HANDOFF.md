@@ -38,9 +38,11 @@ Slices 01 through 13b, and 15, are merged. **14 is not** — it has a PLAN and C
 presentation (§7), 18 is the audit advisories.
 
 A ratchet at 0 is **not** the same as a hard gate: `baseline_gate()` permits a raise when a
-matching `_corrections` entry ships in the same diff (`tools/gate.sh:122-140`), so failing
-tests can still land today by raising the baseline with a recorded reason. Slice 16 closes
-that for `test` by deleting the entry.
+matching `_corrections` entry ships in the same diff, so failing tests could land by raising
+the baseline with a recorded reason. Slice 16 closed that for `test` by deleting the entry, so
+it no longer applies to tests — it still applies to `credo` and `dialyzer`. Find the logic
+with `grep -n _corrections tools/gate.sh` rather than a line number; this file has already
+carried a stale one.
 
 ## 2. The red gate that healed itself, and why it was never a bug
 
