@@ -21,6 +21,13 @@ set -uo pipefail
 
 BASELINE="${BASELINE:-.claude/gate-baseline.json}"
 LOGDIR="${LOGDIR:-$(mktemp -d)}"
+# Create it. `mktemp -d` made the directory as a side effect, so setting LOGDIR to a path
+# that does not exist yet -- which is exactly what pointing it at the CI workspace does --
+# broke every redirect. Four gates went red on run 33586534853 for this reason. They failed
+# CLOSED, refusing to report a pass they could not measure, which is the behaviour the
+# class-1 rule requires; but a gate that cannot write its log is a broken gate, not a
+# finding about the code under test.
+mkdir -p "$LOGDIR" || { echo "gate: cannot create LOGDIR=$LOGDIR" >&2; exit 1; }
 
 note() { printf '  %-24s %s\n' "$1" "$2"; }
 is_uint() { case "${1:-}" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
