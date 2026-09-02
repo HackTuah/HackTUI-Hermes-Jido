@@ -24,6 +24,10 @@ defmodule HacktuiHub.QueryBoundaryTest do
     @root |> Path.join("apps/*/lib/**/*.ex") |> Path.wildcard()
   end
 
+  # Any indentation, and `defdelegate` as well as `def`. The first version anchored on
+  # `^\s{2}def`, so a nested module at four-space indent and a `defdelegate` to another
+  # module both slipped past -- a guard that only catches the shape the duplicate happened
+  # to have is a guard against history, not against recurrence.
   defp defining(pattern) do
     lib_sources()
     |> Enum.filter(&(&1 |> File.read!() |> String.match?(pattern)))
@@ -32,7 +36,7 @@ defmodule HacktuiHub.QueryBoundaryTest do
   end
 
   test "alert_queue is defined in exactly one module" do
-    assert defining(~r/^\s{2}def\s+alert_queue/m) == [
+    assert defining(~r/^\s*def(delegate)?\s+alert_queue/m) == [
              "apps/hacktui_hub/lib/hacktui_hub/query_service.ex"
            ]
   end
@@ -40,12 +44,12 @@ defmodule HacktuiHub.QueryBoundaryTest do
   test "no module exposes a second alert-queue query builder" do
     # Catches the reintroduced shape by name rather than by call site: a *_query builder
     # returning an Ecto query over alerts is how the duplicate was expressed.
-    assert defining(~r/^\s{2}def\s+alert_queue_query/m) == []
+    assert defining(~r/^\s*def(delegate)?\s+alert_queue_query/m) == []
   end
 
   test "the other operator read models are also singly defined" do
     for name <- ~w(case_board approval_inbox audit_events) do
-      definers = defining(~r/^\s{2}def\s+#{name}\(/m)
+      definers = defining(~r/^\s*def(delegate)?\s+#{name}\(/m)
 
       assert definers == ["apps/hacktui_hub/lib/hacktui_hub/query_service.ex"],
              "#{name} should have exactly one public definition; got: #{inspect(definers)}"

@@ -41,8 +41,11 @@ count_test_failures() {
   want=$(ls -d apps/*/test 2>/dev/null | wc -l)
   got=$(grep -cE '[0-9]+ tests?, [0-9]+ failures?' "$1")
   [ "$got" -ge "$want" ] || return 1
-  # `invalid` and `excluded` are counted too: a raising setup_all reports
-  # "N tests, 0 failures, N invalid", which must not read as an improvement.
+  # `invalid` is counted: a raising setup_all reports "N tests, 0 failures, N invalid",
+  # which must not read as an improvement. `excluded` is deliberately NOT counted -- the
+  # 18 integration-tagged tests are excluded by design in this job. The consequence is
+  # recorded honestly: adding @tag :skip shrinks the measured surface without moving the
+  # ratchet, which is why the test-identity manifest is still open work.
   local fails invalid
   fails=$(grep -oE '[0-9]+ failures?' "$1" | grep -oE '^[0-9]+' | paste -sd+ | bc)
   invalid=$(grep -oE '[0-9]+ invalid' "$1" | grep -oE '^[0-9]+' | paste -sd+ | bc)
@@ -74,7 +77,72 @@ ratchet() {
   fi
 }
 
-case "${1:?usage: tools/gate.sh <format|compile|secret-scan|test|credo|dialyzer|mutation|advisories>}" in
+
+# ---------------------------------------------------------------------------
+# baseline: values may only DECREASE, unless a matching _corrections entry
+# ships in the same reviewed diff.
+#
+# Takes the git ref holding the PREVIOUS baseline. The hook passes HEAD. CI passes
+# github.event.before, NOT HEAD~1: GitHub creates one run per push, at the tip, so
+# comparing HEAD~1 checks only the last commit. Pushing commit A (which raises a
+# baseline) followed by commit B compares B against A, prints "90 -> 90", and exits 0 --
+# A's raise is never compared, and no later run revisits it. On a slice branch a
+# multi-commit push is the normal case, so that hole is the common path, not the corner.
+#
+# Fails closed on zero comparisons. Previously the PR path could exit 0 having compared
+# nothing and printed nothing, because `git show` had no failure branch and an empty
+# `old` made every key skip.
+# ---------------------------------------------------------------------------
+baseline_gate() {
+  local ref="${1:-}" prev="$LOGDIR/base.prev" compared=0 raised=0
+
+  [ -r "$BASELINE" ] || { note baseline "FAIL -- $BASELINE missing or unreadable"; return 1; }
+
+  if [ -z "$ref" ] || [ "$ref" = "0000000000000000000000000000000000000000" ]; then
+    note baseline "no previous ref (new branch); nothing to compare"
+    return 0
+  fi
+
+  if ! git cat-file -e "$ref:$BASELINE" 2>/dev/null; then
+    note baseline "FAIL -- $BASELINE absent at $ref; refusing to pass unmeasured"
+    return 1
+  fi
+
+  git show "$ref:$BASELINE" > "$prev" 2>/dev/null || {
+    note baseline "FAIL -- could not read $BASELINE at $ref"; return 1; }
+
+  local k o n blk
+  for k in test_failures credo_issues dialyzer_warnings; do
+    o=$(grep -oE "\"$k\"[[:space:]]*:[[:space:]]*[0-9]+" "$prev"     | grep -oE '[0-9]+$' | head -1)
+    n=$(grep -oE "\"$k\"[[:space:]]*:[[:space:]]*[0-9]+" "$BASELINE" | grep -oE '[0-9]+$' | head -1)
+    is_uint "$o" && is_uint "$n" || continue
+    compared=$((compared + 1))
+    if [ "$n" -gt "$o" ]; then
+      # An increase is permitted ONLY with a matching, reviewable entry in _corrections.
+      # An audit record, not a bypass: the reason ships in the reviewed diff. CI used to
+      # reject every raise unconditionally while the hook honoured corrections, so a
+      # sanctioned correction passed locally and reddened CI. One implementation now.
+      blk=$(grep -A6 "\"key\"[[:space:]]*:[[:space:]]*\"$k\"" "$BASELINE" 2>/dev/null)
+      if printf '%s' "$blk" | grep -qE "\"from\"[[:space:]]*:[[:space:]]*$o[^0-9]" \
+         && printf '%s' "$blk" | grep -qE "\"to\"[[:space:]]*:[[:space:]]*$n[^0-9]"; then
+        note baseline "$k raised $o -> $n with a recorded correction (see _corrections)"
+        raised=$((raised + 1))
+      else
+        note baseline "FAIL -- $k raised $o -> $n with no _corrections entry"
+        return 1
+      fi
+    else
+      note baseline "$k: $o -> $n"
+    fi
+  done
+
+  [ "$compared" -gt 0 ] || {
+    note baseline "FAIL -- compared 0 keys; a gate that measures nothing is not a pass"
+    return 1; }
+  return 0
+}
+
+case "${1:?usage: tools/gate.sh <format|compile|secret-scan|test|credo|dialyzer|mutation|baseline|advisories>}" in
 
   format)
     mix format --check-formatted >/dev/null 2>&1 \
@@ -90,8 +158,8 @@ case "${1:?usage: tools/gate.sh <format|compile|secret-scan|test|credo|dialyzer|
     # Anchored deliberately: an unanchored 'env' matched .../envelope.ex on every run, so
     # the gate could never pass and would have been learned as noise.
     secrets=$(git ls-files | grep -Ei '(^|/)\.env$|\.(key|pem|pcap|pcapng|p12)$')
-    [ -z "$secrets" ] && { note "secret scan" "pass"; exit 0; }
-    note "secret scan" "FAIL -- tracked secret-shaped files:"; printf '%s\n' "$secrets" | sed 's/^/      /'; exit 1
+    [ -z "$secrets" ] && { note "tracked-secret-files" "pass"; exit 0; }
+    note "tracked-secret-files" "FAIL -- tracked secret-shaped files:"; printf '%s\n' "$secrets" | sed 's/^/      /'; exit 1
     ;;
 
   test)
@@ -107,6 +175,10 @@ case "${1:?usage: tools/gate.sh <format|compile|secret-scan|test|credo|dialyzer|
   dialyzer)
     MIX_ENV=dev mix dialyzer --format raw > "$LOGDIR/dz.log" 2>&1
     ratchet "dialyzer (ratchet)" dialyzer_warnings count_dialyzer "$LOGDIR/dz.log"
+    ;;
+
+  baseline)
+    baseline_gate "${2:-}"
     ;;
 
   mutation)

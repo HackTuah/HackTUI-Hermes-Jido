@@ -3,11 +3,12 @@ description: >
   Checkout, Elixir/OTP, and dependency cache. Factored out so every gate job can be fully
   independent: no gate depends on another gate, so no failure can suppress another verdict.
 
+# No checkout here: `uses: ./.github/actions/beam-setup` can only resolve because the
+# calling job already checked out, so a second checkout is redundant. Worse, its default
+# depth-1 would silently re-shallow the repo and break any job that needs history.
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v4
-
     - uses: erlef/setup-beam@v1
       with:
         elixir-version: "1.19.2"

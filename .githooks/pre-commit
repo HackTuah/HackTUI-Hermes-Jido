@@ -44,50 +44,14 @@ if [ -n "$dirty" ]; then
 fi
 
 # ---------- baseline ----------
-baseline_of() {
-  local key=$1 v
-  v=$(grep -oE "\"$key\"[[:space:]]*:[[:space:]]*[0-9]+" "$BASELINE" 2>/dev/null \
-      | grep -oE '[0-9]+$' | head -1)
-  is_uint "$v" || return 1
-  printf '%s' "$v"
-}
+# Delegated, like every other gate. This block used to be a second implementation that had
+# already diverged from CI's: the hook honoured _corrections entries (a reviewable audit
+# record for a sanctioned raise) while CI rejected every raise unconditionally, so the
+# dialyzer 60 -> 61 correction already in gate-baseline.json passes here and would have
+# reddened CI. Two copies of a gate is the defect this slice exists to remove; leaving the
+# baseline gate as the one exception would have made the commit message false.
 [ -r "$BASELINE" ] || die "baseline" "FAIL -- $BASELINE missing or unreadable"
-
-# Baselines may only DECREASE. Without this, a regression can be hidden by editing the
-# baseline in the same commit.
-if git cat-file -e HEAD:"$BASELINE" 2>/dev/null; then
-  git show HEAD:"$BASELINE" > "$LOGDIR/base.prev" 2>/dev/null
-  for k in test_failures credo_issues dialyzer_warnings; do
-    o=$(grep -oE "\"$k\"[[:space:]]*:[[:space:]]*[0-9]+" "$LOGDIR/base.prev" | grep -oE '[0-9]+$' | head -1)
-    n=$(grep -oE "\"$k\"[[:space:]]*:[[:space:]]*[0-9]+" "$BASELINE"        | grep -oE '[0-9]+$' | head -1)
-    is_uint "$o" && is_uint "$n" || continue
-    if [ "$n" -gt "$o" ]; then
-      # An increase is permitted ONLY with a matching, reviewable entry in _corrections.
-      # This is an audit record, not a bypass: the reason ships in the reviewed diff.
-      blk=$(grep -A4 "\"key\"[[:space:]]*:[[:space:]]*\"$k\"" "$BASELINE" 2>/dev/null)
-      if printf '%s' "$blk" | grep -qE "\"from\"[[:space:]]*:[[:space:]]*$o[^0-9]" \
-         && printf '%s' "$blk" | grep -qE "\"to\"[[:space:]]*:[[:space:]]*$n[^0-9]" ; then
-        note "baseline" "$k raised $o -> $n with a recorded correction (see _corrections)"
-      else
-        die "baseline" "FAIL -- $k raised $o -> $n with no _corrections entry; baselines may only decrease"
-      fi
-    fi
-  done
-fi
-
-ratchet() {
-  local label=$1 key=$2 log=$3 fn=$4 base now
-  if ! base=$(baseline_of "$key"); then
-    die "$label" "FAIL -- no single integer \"$key\" in $BASELINE"; return; fi
-  now=$("$fn" "$log") || { die "$label" "FAIL -- gate produced no parseable result (see $log)"; return; }
-  if ! is_uint "$now"; then
-    die "$label" "FAIL -- non-numeric result '$now'; refusing to treat as a pass"; return; fi
-  if   [ "$now" -gt "$base" ]; then die  "$label" "REGRESSION: $now > baseline $base"
-  elif [ "$now" -lt "$base" ]; then
-    die "$label" "improved to $now (baseline $base) -- lower the baseline to $now in this commit"
-  else                              note "$label" "held at $now"
-  fi
-}
+LOGDIR="$LOGDIR" BASELINE="$BASELINE" ./tools/gate.sh baseline HEAD || { fail=1; KEEP_LOGS=1; }
 
 # ---------- HARD + RATCHET ----------
 # Delegated to tools/gate.sh, which the CI workflow also calls.

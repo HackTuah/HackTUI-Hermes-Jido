@@ -9,7 +9,7 @@ defmodule HacktuiStore.ReadModels do
   a database. It had no production caller. Removing the duplication is the fix; repairing
   dead code would have preserved the drift risk.
 
-  The alert queue therefore merges both sources.
+  Alert reads therefore have one path.
   """
 
   import Ecto.Query
@@ -22,7 +22,6 @@ defmodule HacktuiStore.ReadModels do
   }
 
   #
-  # ALERT QUEUE
   #
 
   def case_board_query do

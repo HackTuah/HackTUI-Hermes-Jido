@@ -16,7 +16,10 @@ on:
     branches: ["**"]
   pull_request:
   schedule:
-    # A zero-PR repo needs a scheduled run to catch baseline drift nobody pushed.
+    # For the advisory job: new CVEs land against unchanged dependencies, so the audits
+    # need a clock. NOT for the baseline gate -- that compares git-tracked values and a
+    # scheduled run would re-compare a commit its own push run already checked.
+    # Note: scheduled runs only fire from the default branch.
     - cron: "17 6 * * *"
   workflow_dispatch:
 
@@ -29,6 +32,10 @@ concurrency:
 
 env:
   MIX_ENV: test
+  # Written inside the workspace, not a tmpdir, so a failing gate's log can be uploaded.
+  # Previously a CI credo/dialyzer/test failure produced a count and nothing else: the
+  # log named in the error message lived in an ephemeral mktemp -d on a destroyed runner.
+  LOGDIR: ${{ github.workspace }}/gate-logs
 
 jobs:
   format:
@@ -50,7 +57,7 @@ jobs:
       - run: ./tools/gate.sh compile
 
   secret-scan:
-    name: Gate - secret scan
+    name: Gate - tracked secret-shaped files
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -67,6 +74,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/beam-setup
       - run: ./tools/gate.sh test
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-logs-test
+          path: gate-logs/
+          if-no-files-found: ignore
+          retention-days: 14
 
   credo:
     name: Gate - credo ratchet
@@ -76,6 +90,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/beam-setup
       - run: ./tools/gate.sh credo
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-logs-credo
+          path: gate-logs/
+          if-no-files-found: ignore
+          retention-days: 14
 
   dialyzer:
     name: Gate - dialyzer ratchet
@@ -90,6 +111,13 @@ jobs:
           key: ${{ runner.os }}-plt-otp28.1.1-ex1.19.2-${{ hashFiles('**/mix.lock') }}
           restore-keys: ${{ runner.os }}-plt-otp28.1.1-ex1.19.2-
       - run: ./tools/gate.sh dialyzer
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-logs-dialyzer
+          path: gate-logs/
+          if-no-files-found: ignore
+          retention-days: 14
 
   mutation:
     name: Gate - mutation harness
@@ -102,6 +130,13 @@ jobs:
       # does not hard-abort on it, the harness is broken and no survivor count it reports
       # is evidence.
       - run: ./tools/gate.sh mutation
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-logs-mutation
+          path: gate-logs/
+          if-no-files-found: ignore
+          retention-days: 14
 
   baseline:
     name: Gate - baseline may only decrease
@@ -111,31 +146,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Compare against the previous commit on this ref
+      - name: Compare against the ref this push started from
         run: |
           set +e
-          base_ref="${{ github.base_ref }}"
-          if [ -n "$base_ref" ]; then
-            git fetch --depth=1 origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref" || exit 1
-            old=$(git show "origin/$base_ref:.claude/gate-baseline.json")
+          if [ -n "${{ github.base_ref }}" ]; then
+            git fetch --depth=1 origin \
+              "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" \
+              || { echo "::error::cannot fetch base ref; refusing to pass unmeasured"; exit 1; }
+            ./tools/gate.sh baseline "origin/${{ github.base_ref }}"
           else
-            # push / schedule: compare against the parent commit, so a raise is caught
-            # even with no PR in the repo. This is why the check is no longer PR-gated.
-            old=$(git show "HEAD~1:.claude/gate-baseline.json" 2>/dev/null) || {
-              echo "  baseline               first commit on this ref; nothing to compare"; exit 0; }
+            # github.event.before, NOT HEAD~1. One run is created per push, at the tip, so
+            # HEAD~1 compares only the last commit -- a raise in an earlier commit of the
+            # same push is never seen, and no later run revisits it.
+            ./tools/gate.sh baseline "${{ github.event.before }}"
           fi
-          fail=0
-          for k in test_failures credo_issues dialyzer_warnings; do
-            o=$(printf '%s' "$old" | jq -r ".$k // empty")
-            n=$(jq -r ".$k // empty" .claude/gate-baseline.json)
-            [ -z "$o" ] && continue
-            echo "  $k: $o -> $n"
-            [ "$n" -le "$o" ] || { echo "::error::baseline $k raised $o -> $n"; fail=1; }
-          done
-          exit $fail
 
   advisories:
-    name: Advisory - dependency audits (not blocking until slice 16)
+    name: "Advisory (non-blocking) - dependency audits"
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -144,7 +171,7 @@ jobs:
       - run: ./tools/gate.sh advisories
 
   integration:
-    name: Integration tests (DB-backed)
+    name: "Advisory (non-blocking) - integration tests (DB-backed)"
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Recorded residual: these 18 tests have never run to completion in CI. Removing
