@@ -12,10 +12,16 @@
 # diverged in shell invocation, which is exactly the kind of difference a comment cannot
 # hold. One script removes the class of defect, not just the instance.
 #
-# `set +e` is explicit and load-bearing. `set -uo pipefail` alone does NOT clear an -e
-# inherited from the caller, so `bash -e tools/gate.sh test` would still abort at the first
-# failing command -- reproducing the exact defect this script exists to remove. A gate must
-# observe an exit status and score it, never abort on it, regardless of how it is invoked.
+# `set +e` on the next line is load-bearing. Derived, not argued: remove it, invoke
+# `bash -e tools/gate.sh test` against a suite with real failures, and the gate exits 2
+# printing NO verdict at all; with it, the same run prints `FAIL -- N failing test(s)`.
+# That is the slice-13 defect class -- a gate reporting a result it never measured.
+#
+# WHICH construct aborts is deliberately NOT asserted here. Two different mechanisms were
+# written into this comment and both were wrong; the fact above is the part that was
+# measured. The mechanism is an open question in the slice 16b findings record. A comment
+# asserting a mechanism nobody derived is the defect class that produced every blocking
+# finding across C1 and C2.
 set +e
 set -uo pipefail
 
@@ -32,17 +38,30 @@ mkdir -p "$LOGDIR" || { echo "gate: cannot create LOGDIR=$LOGDIR" >&2; exit 1; }
 note() { printf '  %-24s %s\n' "$1" "$2"; }
 is_uint() { case "${1:-}" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
 
+# THE definition of "a baseline value", and the only one. Takes (file, key).
+#
+# This is one function rather than two identical ones on purpose. It used to be duplicated,
+# and the copies drifted: `baseline_of` read with `jq -r ".k // empty"`, which stringifies, so
+# a JSON *string* "200" passed is_uint and became a baseline of 200, while baseline_gate's
+# stricter reader saw the same key as ABSENT. A real credo regression (76 -> 200) passed both
+# gates with no _corrections entry. Re-derivable: check out a commit with the lax reader
+# (e8c9a94 is one), set credo_issues to the string "200", and run `baseline` and `credo`.
+# An earlier version of this comment added "and licensed a retirement for it" -- that is NOT
+# derivable from any committed state, because no commit with the lax reader has any _retired
+# handling at all (`git show e8c9a94:tools/gate.sh | grep -c _retired` -> 0). It described a
+# working state during review, which is not evidence a later reader can check.
+#
+# Two byte-identical copies would have been just as wrong: identical today is not the same as
+# one definition, and nothing stops the next edit from touching one of them. The test for this
+# is a mutation, not a grep -- change what this returns and BOTH readers must move together.
+top_uint() {
+  jq -r --arg k "$2" 'if (has($k) and (.[$k] | type == "number")) then .[$k] else empty end' \
+    "$1" 2>/dev/null
+}
+
 baseline_of() {
   local k
-  # Must be a top-level NUMBER, and this must agree exactly with baseline_gate's reader.
-  # `jq -r ".k // empty"` stringifies, so a JSON *string* "200" passed is_uint and became a
-  # baseline of 200 -- while baseline_gate's stricter reader saw the same key as absent and
-  # licensed a "retirement" for it. Two readers disagreeing about what a baseline IS let a
-  # real credo regression (76 -> 200) pass both gates with no _corrections entry, and made
-  # the gate print "retired at 76" about a key that was still present and still enforced.
-  # One definition, used by both.
-  k=$(jq -r --arg k "$1" 'if (has($k) and (.[$k] | type == "number")) then .[$k] else empty end' \
-      "$BASELINE" 2>/dev/null) || return 1
+  k=$(top_uint "$BASELINE" "$1") || return 1
   is_uint "$k" || return 1
   printf '%s' "$k"
 }
@@ -55,6 +74,13 @@ count_test_failures() {
   local want got
   want=$(ls -d apps/*/test 2>/dev/null | wc -l)
   got=$(grep -cE '[0-9]+ tests?, [0-9]+ failures?' "$1")
+  # A gate that measures nothing is not a pass. `got >= want` alone degenerates when there is
+  # nothing to measure: with no apps/*/test directories, want=0 and got=0, `0 >= 0` holds, and
+  # an EMPTY log with TEST_STATUS=0 scored `pass (0 failures)`. That was survivable while this
+  # was a ratchet against a baseline of 0; it is not survivable now that it is the hard
+  # barrier. Same rule baseline_gate already applies with "compared 0 keys".
+  [ "$want" -ge 1 ] || return 1
+  [ "$got"  -ge 1 ] || return 1
   [ "$got" -ge "$want" ] || return 1
   # `invalid` is counted: a raising setup_all reports "N tests, 0 failures, N invalid",
   # which must not read as an improvement. `excluded` is deliberately NOT counted -- the
@@ -167,20 +193,155 @@ baseline_gate() {
   # _corrections object did too. jq scopes every read to the structure it means.
   command -v jq >/dev/null 2>&1 || {
     note baseline "FAIL -- jq not available; refusing to compare baselines unparsed"; return 1; }
-  jq -e . "$BASELINE" >/dev/null 2>&1 || {
-    note baseline "FAIL -- $BASELINE is not valid JSON"; return 1; }
+  # `jq -e .` exits non-zero for `null` and `false`, which ARE valid JSON -- just falsy.
+  # Both still fail closed, which is right; the message was wrong about why.
+  jq -e 'type == "object"' "$BASELINE" >/dev/null 2>&1 || {
+    note baseline "FAIL -- $BASELINE is not a JSON object"; return 1; }
 
-  # Top-level, numeric, nothing else. A stringified "76" is not a baseline.
-  top_uint() {
-    jq -r --arg k "$2" 'if (has($k) and (.[$k] | type == "number")) then .[$k] else empty end' \
-      "$1" 2>/dev/null
-  }
   # Scoped to _retired and to an object member named retired_key. A stray
   # "retired_key" elsewhere in the file is not a declaration.
   declared_retired() {
     jq -e --arg k "$2" '[._retired[]? | select(.retired_key == $k)] | length > 0' \
       "$1" >/dev/null 2>&1
   }
+
+  # ---------------------------------------------------------------------------
+  # _retired integrity, checked ONCE over the whole array and over EVERY key it names --
+  # not per known key inside the loop below.
+  #
+  # The subject is the _retired array ACROSS COMMITS, not any single key's current value.
+  # Splitting it into per-key half-checks is what let two forgeries through: a `first(...)`
+  # read returned the ORIGINAL entry so an appended second entry was never compared, and a
+  # value guard that only fired when the key still existed at the previous ref covered only
+  # the retirement instant -- the case that was already covered -- and skipped the steady
+  # state where the corruption actually happens. Both were measured passing green.
+  #
+  # Note the key list: the loop below iterates three known baselines, so a _retired entry
+  # naming any OTHER key (hex_audit_advisories, say) was never examined at all. Measured:
+  # declared-retired-and-still-present passed green for an unguarded key while correctly
+  # failing for a guarded one. These rules read the array, so they cover every key in it.
+  # ---------------------------------------------------------------------------
+  local prev_ret now_ret dup rk rat rprev
+  prev_ret=$(jq -S -c '._retired // []' "$prev"     2>/dev/null) || prev_ret='[]'
+  now_ret=$( jq -S -c '._retired // []' "$BASELINE" 2>/dev/null) || now_ret='[]'
+
+  # RULE 0 -- SHAPE, checked before any rule that reads a field. Every rule below reads this
+  # array, and a malformed entry must fail HERE with a message about shape rather than making
+  # a later reader error out mid-flight.
+  #
+  # This is not hypothetical. jq streams: an entry whose retired_key was `{}` or `[]` made the
+  # @tsv reader for rules 3/3a abort, and because it aborts it emitted NOTHING -- so with
+  # 2>/dev/null an errored jq read as "no violations found" and rules 3 and 3a were skipped
+  # for EVERY new entry in the diff. Measured: a forged retirement carrying no retired_at at
+  # all passed rc=0 with such an entry placed first, where the byte-identical file without it
+  # failed rc=1. Ordering was the attacker's to choose.
+  #
+  # Scoped deliberately: the STRUCTURAL requirement (array of objects, non-empty string
+  # retired_key) applies to the whole array, because every rule below reads those fields. The
+  # VALUE requirement on retired_at applies only to entries NEW in this diff, and is enforced
+  # further down where new entries are already being walked.
+  #
+  # Requiring numeric retired_at across the whole array would be a trap with no exit: entries
+  # are immutable in every field by Rule 1, and an earlier gate accepted the string form, so a
+  # landed `"retired_at": "0"` would flip an UNCHANGED file to FAIL permanently, with no
+  # sanctioned-correction path. Not reachable in this repo -- the one live entry is numeric and
+  # a replay of every commit is clean -- but a rule that can strand a valid file is the wrong
+  # rule. New entries are the forgery vector; old ones are held by immutability.
+  #
+  # retired_key must be NON-EMPTY: "" is a string, and @tsv emitting a leading empty field
+  # collapses under IFS=$'\t', shifting the pair so the FAIL message names a value instead of
+  # a key.
+  if ! jq -e -n --argjson q "$now_ret" \
+       '($q | type) == "array"
+        and ($q | all(.[];
+              (type == "object")
+              and ((.retired_key | type) == "string")
+              and ((.retired_key | length) > 0)))' \
+       >/dev/null 2>&1; then
+    note baseline "FAIL -- _retired must be an array of objects, each with a non-empty string retired_key"
+    return 1
+  fi
+
+  # RULE 1 -- immutable and append-only. Every entry present at the previous ref must still
+  # be present now. Equality is jq -S canonical over the ENTIRE entry object, every field,
+  # not a selected subset: a changed `reason` or `slice` is caught as readily as a changed
+  # `retired_at`, and key order or whitespace cannot disguise an edit.
+  if ! jq -e -n --argjson p "$prev_ret" --argjson q "$now_ret" \
+       '(($p - $q) | length) == 0' >/dev/null 2>&1; then
+    note baseline "FAIL -- a _retired entry present at $ref was removed or altered; the record is append-only and immutable"
+    return 1
+  fi
+
+  # RULE 2 -- at most one entry per key. This is also what removes the "which entry counts?"
+  # ambiguity that produced the first-entry read.
+  dup=$(jq -r -n --argjson q "$now_ret" \
+          '[$q[].retired_key] | group_by(.) | map(select(length > 1)) | map(.[0]) | first // empty' 2>/dev/null)
+  if [ -n "$dup" ]; then
+    note baseline "FAIL -- _retired has more than one entry for $dup; at most one per key"
+    return 1
+  fi
+
+  # RULES 3 / 3a -- for every entry that is NEW in this diff: the key must have had a numeric
+  # top-level value at the previous ref (3a: an absent value is a MISMATCH, never a skip --
+  # the same class of gate-by-precondition that made the first attempt inert), and the
+  # entry's retired_at must equal that value (3).
+  #
+  # The loop COUNTS what it consumed and compares against what jq should have produced. A
+  # reader that aborts must never read as "nothing to check" -- the same assertion discipline
+  # §4b already requires of scripted edits, applied to a gate's own reader.
+  local want_rows got_rows
+  want_rows=$(jq -r -n --argjson p "$prev_ret" --argjson q "$now_ret" '($q - $p) | length' 2>/dev/null)
+  got_rows=0
+  while IFS=$'\t' read -r rk rat; do
+    got_rows=$((got_rows + 1))
+    rprev=$(top_uint "$prev" "$rk")
+    if ! is_uint "$rprev"; then
+      note baseline "FAIL -- new _retired entry for $rk, which had no numeric baseline at $ref"
+      return 1
+    fi
+    # The reader below emits "-" for a missing retired_at and "NaN" for one that is not a
+    # non-negative integer, so the two failures are distinguishable and each message is true.
+    # A previous version ran `tostring` over any JSON value: 76.0 came through as "76.0",
+    # failed is_uint, and was reported as "carries no numeric retired_at" -- which was false,
+    # since it IS a number. 7.6e1 meanwhile became "76" and passed. Same value, two verdicts.
+    if [ "$rat" = "-" ]; then
+      note baseline "FAIL -- new _retired entry for $rk carries no retired_at"
+      return 1
+    fi
+    if ! is_uint "$rat"; then
+      note baseline "FAIL -- new _retired entry for $rk has a retired_at that is not a whole number"
+      return 1
+    fi
+    if [ "$rat" != "$rprev" ]; then
+      note baseline "FAIL -- $rk's _retired entry records retired_at=$rat but its value at $ref is $rprev"
+      return 1
+    fi
+  done < <(jq -r -n --argjson p "$prev_ret" --argjson q "$now_ret" \
+             '($q - $p)[]
+              | [ .retired_key,
+                  ( if (has("retired_at") | not) then "-"
+                    elif ((.retired_at | type) == "number")
+                         and ((.retired_at | floor) == .retired_at)
+                         and (.retired_at >= 0)
+                    then (.retired_at | floor | tostring)
+                    else "NaN" end ) ]
+              | @tsv' 2>/dev/null)
+
+  if ! is_uint "$want_rows" || [ "$got_rows" -ne "$want_rows" ]; then
+    note baseline "FAIL -- read $got_rows of ${want_rows:-?} new _retired entries; refusing to pass on a partial read"
+    return 1
+  fi
+
+  # RULE 3b -- a key may be declared retired, or carry a numeric baseline, but never both in
+  # the same file. Otherwise a retirement declaration can be parked next to a live value.
+  # Checked over every key named in _retired, which is what the per-key loop could not do.
+  while IFS= read -r rk; do
+    [ -n "$rk" ] || continue
+    if is_uint "$(top_uint "$BASELINE" "$rk")"; then
+      note baseline "FAIL -- $rk is declared retired in _retired and still present as a baseline"
+      return 1
+    fi
+  done < <(jq -r -n --argjson q "$now_ret" '$q[].retired_key // empty' 2>/dev/null)
 
   local k o n
   for k in test_failures credo_issues dialyzer_warnings; do
@@ -231,19 +392,15 @@ baseline_gate() {
         note baseline "FAIL -- $k present at $ref, absent now, with no _retired entry"
         return 1
       fi
-      # retired_at, when present, must be the value actually being retired. Otherwise the
-      # durable JSON record says one thing and the deletion does another, and only the
-      # gate's transient stdout carries the truth.
-      local at
-      at=$(jq -r --arg k "$k" 'first(._retired[]? | select(.retired_key == $k) | .retired_at // empty)' \
-             "$BASELINE" 2>/dev/null)
-      if [ -n "$at" ] && [ "$at" != "$o" ]; then
-        note baseline "FAIL -- $k's _retired entry records retired_at=$at but the value is $o"
-        return 1
-      fi
+      # retired_at is NOT re-checked here. Rules 0/3 above already validated it for every
+      # entry new in this diff, over the whole _retired array rather than the three keys this
+      # loop happens to iterate. Keeping a second copy here was worse than redundant: it used
+      # `first(...)`, which reads the FIRST entry for a key and so could not see an appended
+      # forgery, and it compared the raw JSON text, so an integral float like 43.0 failed
+      # against a baseline of 43 while 7.6e1 passed. Two checks for one invariant, disagreeing.
       # Deliberately NOT counted toward `compared`: retiring every key would otherwise
       # satisfy the fail-closed "compared 0 keys" check while comparing nothing.
-      note baseline "$k retired at $o with a recorded _retired entry (its gate must now be hard)"
+      note baseline "$k retired at $o with a recorded _retired entry (its gate must be hard; not checked here)"
       continue
     fi
 
