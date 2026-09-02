@@ -41,8 +41,9 @@ A ratchet at 0 is **not** the same as a hard gate: `baseline_gate()` permits a r
 matching `_corrections` entry ships in the same diff, so failing tests could land by raising
 the baseline with a recorded reason. Slice 16 closed that for `test` by deleting the entry, so
 it no longer applies to tests — it still applies to `credo` and `dialyzer`. Find the logic
-with `grep -n _corrections tools/gate.sh` rather than a line number; this file has already
-carried a stale one.
+with `grep -n _corrections tools/gate.sh` rather than a line number: the citation that used to
+stand here was accurate when written and was invalidated by the very commit that hardened the
+gate, which is what line numbers into a file under active change are worth.
 
 ## 2. The red gate that healed itself, and why it was never a bug
 

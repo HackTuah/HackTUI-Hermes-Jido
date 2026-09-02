@@ -33,6 +33,15 @@ that may only decrease, with `_corrections` as the audit record for any sanction
 
 Until then, treat a clean CI run as saying nothing about dependency vulnerabilities.
 
+**These two keys are also outside the baseline gate's guard.** `baseline_gate` in
+`tools/gate.sh` iterates a fixed list — `test_failures`, `credo_issues`, `dialyzer_warnings` —
+so `hex_audit_advisories` and `deps_audit_advisories` can be raised or deleted with nothing
+comparing them. Measured, not assumed: a retirement declaration for `hex_audit_advisories`
+passed green where the identical shape for `credo_issues` failed. The `_retired` integrity
+rules added in slice 16b do cover every key named in `_retired`, so the *declaration* path is
+guarded now; the *value* path is not, and will not be until these two become real ratchets.
+Whoever picks this up should extend the key list in the same change.
+
 Two in-tree comments in `tools/gate.sh` used to assign this work to slice 16, which is the
 release and does not include it. This item recorded that disagreement, and the next commit to
 touch that file corrected the comments to slice 18, so the code and the backlog now agree.
