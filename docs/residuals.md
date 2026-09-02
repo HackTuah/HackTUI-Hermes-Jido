@@ -105,23 +105,35 @@ public definition, in `query_service.ex`. Verified to fire: reintroducing a dupl
 
 ## Not residuals: tracked blocking defects
 
-A blocking-class finding cannot be recorded here. This section names them and points to the
-slice that closes each, so the ledger cannot become a place where blocking items go quiet.
+A blocking-class finding cannot be recorded as a residual. This section names them and the
+slice that closes each.
 
-### The signoff gate accepts an empty diff — BLOCKING (class 1), slice 13b
+**Aging rule.** No entry here may be older than one slice without an assigned slice number
+and a named owner. A signoff that leaves an unassigned entry fails review. Without that
+rule this section becomes the second place blocking items go quiet, which is the thing it
+was created to prevent.
 
-`.githooks/pre-commit` hashes the staged diff and looks for that hash in a
-`REVIEW.signoff`. With nothing staged the hash is
-`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`, the sha256 of the empty
-string, and a signoff containing it is reported as "matches staged diff." Observed while
-committing a change that touched only gitignored files.
+*Currently open: none.*
 
-Blocking class 1: a gate reporting a verdict without a probe. It was first recorded here as
-a residual, which was wrong — the protocol does not permit that, and filing it here would
-have let a blocking defect go quiet in a document whose purpose is the opposite.
+### CLOSED — signoff gate accepted an empty diff (slice 13b)
 
-Closed by **slice 13b**, before the SPDX commit, because a 130-file mechanical diff is
-exactly the change whose attestation has to be honest.
+`.githooks/pre-commit` hashed the staged diff and looked for that value in a
+`REVIEW.signoff`. With nothing staged the hash is the sha256 of the empty string, and a
+signoff containing it was reported as "matches staged diff." Blocking class 1: a verdict
+without a probe.
+
+Closed by `tools/gate.sh attestation`, which **derives** each commit's diff hash from the
+pushed range and compares it to the claim in that commit's message, per commit. An empty
+reviewable diff is a distinct verdict and can never be a match; `commit-msg` refuses to
+create one.
+
+Demonstrated: CI run 33589821607 reddened attestation and only attestation when an
+already-pushed commit was amended without updating its trailer
+(claimed `50101f8c...`, derived `b9e61f7a...`).
+
+**What it does not close:** the attested party still produces the record. A signature
+against a tracked `allowed-signers` file is what makes the attester a different privilege
+domain, and that remains unbuilt.
 
 ## Unverified by construction
 
