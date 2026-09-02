@@ -63,40 +63,45 @@ disagreement between two measurements is a finding, not a rounding error.
 
 ---
 
-## Known-failing tests carried at baseline
+## Known-failing tests: RESOLVED in slice 13
 
-Two failures are recorded in `.claude/gate-baseline.json` as `test_failures: 2`. Both
-predate the current work and reproduce on clean `main` across three consecutive isolated
-worktree runs. **Neither is permitted to be carried silently.**
+Both failures recorded here are fixed. The suite is **248 tests, 0 failures** across three
+consecutive runs, and `.claude/gate-baseline.json` `test_failures` is **0**. Kept in this
+ledger because the reasoning is the point, not the outcome.
 
-### `HacktuiStore.ReadModelsTest` — "builds alert queue query"
+### `HacktuiSensorTest` - resolved
 
-**Root cause, confirmed.** `ReadModels.alert_queue_query/0` selects `event.entry_type` and
-`event.payload`; `HacktuiStore.Schema.AuditEvent` declares neither, and neither column
-exists in any migration. Ecto validates fields at *planning* time, so the function returns
-a `%Ecto.Query{}` and raises only on execution. The query **cannot execute against any
-database**.
+**Root cause.** A production cadence colliding with a test budget, not a defect in the code
+under test. `Collectors.ProcessSignals` schedules its first collection at boot; the test's
+first statement clears recent observations, erasing it; the next collection is at
+`@default_process_interval_ms` (5000 ms) while `assert_eventually` budgets 20 x 100 ms
+(2000 ms). It passed only when two unordered casts from different processes happened to land
+in the lucky order.
 
-There are also two competing definitions of the alert queue — this one and
-`QueryService.alert_queue/1`, which is the one the live path uses.
+**Fix.** `config :hacktui_sensor, HacktuiSensor, process_signals_interval_ms: 50` in
+`config/test.exs`. The 2000 ms budget was the intent; 5000 ms is a production number that
+does not belong in a test run.
 
-**Disposition:** the duplicate definition is the defect. Scheduled for the read-model work;
-the fix is expected to be deletion, not repair.
+### `HacktuiStore.ReadModelsTest` - resolved by deletion, and this distinction matters
 
-### `HacktuiSensorTest` — "starts collector supervision boundaries and ingests live observations locally"
+**This was a duplicate-definition defect, not a query bug.** `alert_queue_query/0` was a
+**second** definition of the alert queue, alongside the live one at
+`HacktuiHub.QueryService.alert_queue/1`. It selected `entry_type` and `payload`, which
+`HacktuiStore.Schema.AuditEvent` does not declare and no migration creates, so it could
+never execute against a database - and it had **no production caller**. Ecto validates
+fields at planning time, so it returned a `%Ecto.Query{}` and would have raised only on
+`Repo.all`; its test asserted `query.from.source`, which never plans.
 
-**Root cause, confirmed.** A timing race, not a defect in the code under test.
-`Collectors.ProcessSignals` schedules its first collection at boot; the test's first
-statement clears recent observations, erasing it. The next collection is at
-`process_signals_interval_ms` (5000 ms) while the test's `assert_eventually` budgets
-20 × 100 ms = 2000 ms. It passes only when two unordered casts from different processes
-happen to land in the lucky order.
+**Fix: removed the duplication rather than repairing dead code.** Repairing it would have
+left a second, unused definition of an operator read model free to drift from the real one.
 
-**Disposition:** fix is to set `process_signals_interval_ms: 50` in `config/test.exs`, or
-to `send(collector_pid, :collect)` and assert on the result. Scheduled with the sensor
-work. Until then the flake is recorded here rather than re-diagnosed each time it appears.
+That is the difference between "we deleted a failing test" and "we removed a drift risk,"
+and it is why the guard below exists rather than the fix ending at deletion.
 
----
+**Guard, so it cannot return.** `apps/hacktui_hub/test/query_boundary_test.exs` asserts that
+`alert_queue`, `case_board`, `approval_inbox` and `audit_events` each have exactly one
+public definition, in `query_service.ex`. Verified to fire: reintroducing a duplicate
+`alert_queue_query/0` fails two named tests.
 
 ## Unverified by construction
 

@@ -1,0 +1,25 @@
+name: BEAM setup
+description: >
+  Checkout, Elixir/OTP, and dependency cache. Factored out so every gate job can be fully
+  independent: no gate depends on another gate, so no failure can suppress another verdict.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+
+    - uses: erlef/setup-beam@v1
+      with:
+        elixir-version: "1.19.2"
+        otp-version: "28.1.1"
+
+    - uses: actions/cache@v4
+      with:
+        path: |
+          deps
+          _build
+        key: ${{ runner.os }}-mix-otp28.1.1-ex1.19.2-${{ hashFiles('**/mix.lock') }}
+        restore-keys: ${{ runner.os }}-mix-otp28.1.1-ex1.19.2-
+
+    - run: mix deps.get --check-locked
+      shell: bash

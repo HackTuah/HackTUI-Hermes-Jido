@@ -1,134 +1,155 @@
 name: CI
 
+# Every gate is its own job, and no gate depends on another. The gate matrix is evidence:
+# five independent verdicts are more informative than one red run that hides four.
+#
+# This replaces a single `gates` job whose steps ran in sequence. When its test-ratchet
+# step failed, credo, dialyzer and all three advisories were skipped and reported as `-`.
+# That masked thirteen consecutive failures whose actual cause was one shell flag: the
+# step ran under GitHub's default `shell: bash -e`, so `mix test` exiting non-zero aborted
+# it before the baseline comparison could run. The gate logic now lives in tools/gate.sh,
+# which both this workflow and .githooks/pre-commit call, so the two cannot diverge again.
+
 on:
   push:
-    branches: [main]
+    # Every branch, not just main: a slice branch must gate before a PR exists.
+    branches: ["**"]
   pull_request:
+  schedule:
+    # A zero-PR repo needs a scheduled run to catch baseline drift nobody pushed.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   MIX_ENV: test
 
 jobs:
-  gates:
-    name: CLAUDE.md commit gates
+  format:
+    name: Gate - format
     runs-on: ubuntu-latest
-
-    # No postgres service here: the default suite runs with HACKTUI_START_REPO unset
-    # and never connects. DB-backed tests run in the `integration` job below.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/beam-setup
+      - run: ./tools/gate.sh format
 
-      - uses: erlef/setup-beam@v1
-        with:
-          elixir-version: "1.19.2"
-          otp-version: "28.1.1"
+  compile:
+    name: Gate - compile (--warnings-as-errors)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/beam-setup
+      - run: ./tools/gate.sh compile
 
-      - name: Cache deps and build
-        uses: actions/cache@v4
-        with:
-          path: |
-            deps
-            _build
-          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
+  secret-scan:
+    name: Gate - secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./tools/gate.sh secret-scan
 
-      # Separate key: a cold PLT build takes 5-15 minutes and would make the
-      # dialyzer gate unusable without it.
-      - name: Cache Dialyzer PLT
-        uses: actions/cache@v4
+  test:
+    name: Gate - test ratchet
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # No postgres service: the default suite runs with HACKTUI_START_REPO unset and never
+    # connects. DB-backed tests are the `integration` job.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/beam-setup
+      - run: ./tools/gate.sh test
+
+  credo:
+    name: Gate - credo ratchet
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/beam-setup
+      - run: ./tools/gate.sh credo
+
+  dialyzer:
+    name: Gate - dialyzer ratchet
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/beam-setup
+      - uses: actions/cache@v4
         with:
           path: priv/plts
-          key: ${{ runner.os }}-plt-dev-otp28.1.1-ex1.19.2-${{ hashFiles('**/mix.lock') }}
-          restore-keys: ${{ runner.os }}-plt-dev-otp28.1.1-ex1.19.2-
+          key: ${{ runner.os }}-plt-otp28.1.1-ex1.19.2-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-plt-otp28.1.1-ex1.19.2-
+      - run: ./tools/gate.sh dialyzer
 
-      - run: mix deps.get
+  mutation:
+    name: Gate - mutation harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/beam-setup
+      # Row 1 of the TSV is a CANARY whose pattern is deliberately absent. If the harness
+      # does not hard-abort on it, the harness is broken and no survivor count it reports
+      # is evidence.
+      - run: ./tools/gate.sh mutation
 
-      # --- hard gates: these pass today and must never regress ---
-      - name: Gate - format
-        run: mix format --check-formatted
-
-      - name: Gate - compile
-        run: mix compile --warnings-as-errors
-
-      - name: Gate - secret scan
+  baseline:
+    name: Gate - baseline may only decrease
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Compare against the previous commit on this ref
         run: |
-          if git ls-files | grep -Ei '(^|/)\.env$|\.(key|pem|pcap|pcapng|p12)$'; then
-            echo "::error::tracked secret-like files found"; exit 1
+          set +e
+          base_ref="${{ github.base_ref }}"
+          if [ -n "$base_ref" ]; then
+            git fetch --depth=1 origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref" || exit 1
+            old=$(git show "origin/$base_ref:.claude/gate-baseline.json")
+          else
+            # push / schedule: compare against the parent commit, so a raise is caught
+            # even with no PR in the repo. This is why the check is no longer PR-gated.
+            old=$(git show "HEAD~1:.claude/gate-baseline.json" 2>/dev/null) || {
+              echo "  baseline               first commit on this ref; nothing to compare"; exit 0; }
           fi
-
-      # --- ratchet gates: compared against .claude/gate-baseline.json ---
-      # These fail today, so they are compared, not required to pass. A REGRESSION
-      # fails the build. Without this the job would be green regardless of damage.
-      - name: Gate - test ratchet
-        run: |
-          set -o pipefail
-          mix test > /tmp/test.log 2>&1; status=$?
-          cat /tmp/test.log
-          # ExUnit exits 0 (passed) or 2 (tests failed). Anything else means the run did
-          # not measure every app -- a partial log summing to fewer failures would read
-          # as an improvement. Must match .githooks/pre-commit.
-          case "$status" in 0|2) ;; *) echo "::error::mix test exited $status; run incomplete"; exit 1 ;; esac
-          want=$(ls -d apps/*/test | wc -l)
-          got=$(grep -cE '[0-9]+ tests?, [0-9]+ failures?' /tmp/test.log)
-          [ "$got" -ge "$want" ] || { echo "::error::only $got/$want app summaries; run incomplete"; exit 1; }
-          now=$(grep -oE '[0-9]+ failures?' /tmp/test.log | grep -oE '^[0-9]+' | paste -sd+ | bc)
-          base=$(jq -r .test_failures .claude/gate-baseline.json)
-          echo "test failures: $now (baseline $base)"
-          [ "$now" -le "$base" ] || { echo "::error::regression $now > $base"; exit 1; }
-
-      - name: Gate - credo ratchet
-        run: |
-          MIX_ENV=dev mix credo --strict > /tmp/credo.log 2>&1 || true
-          if grep -q 'found no issues' /tmp/credo.log; then now=0; else
-            now=$(grep -oE '[0-9]+ (warnings?|refactoring opportunit(y|ies)|code readability issues?|software design suggestions?|consistency issues?)' /tmp/credo.log | grep -oE '^[0-9]+' | paste -sd+ | bc)
-          fi
-          [ -n "$now" ] || { echo "::error::credo produced no summary"; exit 1; }
-          base=$(jq -r .credo_issues .claude/gate-baseline.json)
-          echo "credo issues: $now (baseline $base)"
-          [ "$now" -le "$base" ] || { echo "::error::regression $now > $base"; exit 1; }
-
-      # The default and raw formatters work; only --format short/github throw on
-      # OTP 28's :exact_compare in dialyxir 1.4.7.
-      - name: Gate - dialyzer ratchet
-        run: |
-          MIX_ENV=dev mix dialyzer --format raw > /tmp/dz.log 2>&1 || true
-          now=$(grep -oE 'Total errors: [0-9]+' /tmp/dz.log | grep -oE '[0-9]+$' | head -1)
-          [ -n "$now" ] || { echo "::error::dialyzer produced no total"; exit 1; }
-          base=$(jq -r .dialyzer_warnings .claude/gate-baseline.json)
-          echo "dialyzer warnings: $now (baseline $base)"
-          [ "$now" -le "$base" ] || { echo "::error::regression $now > $base"; exit 1; }
-
-      # H2: baselines may only DECREASE. Without this, a regression can be hidden by
-      # editing the baseline in the same PR and nothing would notice.
-      - name: Gate - baseline may only decrease
-        if: github.event_name == 'pull_request'
-        run: |
-          # NOTE: pushes to main skip this. main is unprotected; the local hook covers it.
-          git fetch --depth=1 origin ${{ github.base_ref }}
-          git fetch --depth=1 origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
-          old=$(git show origin/${{ github.base_ref }}:.claude/gate-baseline.json) || {
-            echo "::error::cannot read baseline on base ref -- refusing to skip"; exit 1; }
+          fail=0
           for k in test_failures credo_issues dialyzer_warnings; do
-            o=$(printf '%s' "$old" | jq -r ".$k"); n=$(jq -r ".$k" .claude/gate-baseline.json)
-            [ "$o" = null ] && continue
-            echo "$k: $o -> $n"
-            [ "$n" -le "$o" ] || { echo "::error::baseline $k raised $o -> $n"; exit 1; }
+            o=$(printf '%s' "$old" | jq -r ".$k // empty")
+            n=$(jq -r ".$k // empty" .claude/gate-baseline.json)
+            [ -z "$o" ] && continue
+            echo "  $k: $o -> $n"
+            [ "$n" -le "$o" ] || { echo "::error::baseline $k raised $o -> $n"; fail=1; }
           done
+          exit $fail
 
-      # --- advisory ---
-      - name: Advisory - dependency audit (13 known advisories, 6 HIGH)
-        run: mix do deps.loadpaths + deps.audit || true
-
-      - name: Advisory - hex.audit
-        run: mix hex.audit || true
-
-      - name: Advisory - sobelow (per app; umbrella unsupported at root)
-        run: for a in apps/*/; do echo "== $a"; mix sobelow --root "$a" --exit || true; done
+  advisories:
+    name: Advisory - dependency audits (not blocking until slice 16)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/beam-setup
+      - run: ./tools/gate.sh advisories
 
   integration:
     name: Integration tests (DB-backed)
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    timeout-minutes: 20
+    # Recorded residual: these 18 tests have never run to completion in CI. Removing
+    # continue-on-error is slice 16's work, once their real failure count is known.
+    continue-on-error: true
     services:
       postgres:
         image: postgres:16
@@ -138,26 +159,17 @@ jobs:
           POSTGRES_DB: hacktui_qualification_test
         ports: ["5432:5432"]
         options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
     env:
+      HACKTUI_START_REPO: "true"
       HACKTUI_DB_USER: hacktui
       HACKTUI_DB_PASS: postgres
       HACKTUI_DB_HOST: localhost
       HACKTUI_DB_PORT: "5432"
       HACKTUI_DB_NAME: hacktui_qualification_test
-      HACKTUI_START_REPO: "true"
-      HACKTUI_AGENT_BACKENDS: jido
-      HACKTUI_COLLAB_PROVIDERS: slack
     steps:
       - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1
-        with:
-          elixir-version: "1.19.2"
-          otp-version: "28.1.1"
-      - run: mix deps.get
-      - run: mix ecto.migrate
+      - uses: ./.github/actions/beam-setup
+      - run: mix ecto.create && mix ecto.migrate
       - run: mix test --include integration
-        continue-on-error: true   # 18 integration tests have never run in CI; see BACKLOG

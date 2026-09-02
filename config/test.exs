@@ -8,3 +8,9 @@ config :hacktui_store, HacktuiStore.Repo,
   database: System.get_env("HACKTUI_DB_NAME", "hacktui_qualification_test"),
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: 5
+
+# The collector's production cadence is 5s (`hacktui_sensor.ex` @default_process_interval_ms).
+# `HacktuiSensorTest` clears recent observations as its first statement, erasing the boot-time
+# collection, then waits 20 x 100ms = 2s for the next one -- which cannot arrive. The 2s budget
+# is the intent; 5s is a production number that does not belong in a test run.
+config :hacktui_sensor, HacktuiSensor, process_signals_interval_ms: 50

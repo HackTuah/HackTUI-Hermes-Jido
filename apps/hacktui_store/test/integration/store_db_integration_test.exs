@@ -248,12 +248,10 @@ defmodule HacktuiStore.StoreDbIntegrationTest do
     :ok = match?({:ok, _}, Cases.persist_open(Repo, case_record, case_event)) && :ok
     :ok = match?({:ok, _}, Actions.persist_request(Repo, request, request_event)) && :ok
 
-    alerts = Repo.all(ReadModels.alert_queue_query())
     cases = Repo.all(ReadModels.case_board_query())
     approvals = Repo.all(ReadModels.approval_inbox_query())
     timeline = Repo.all(ReadModels.case_timeline_query("case-9"))
 
-    assert Enum.any?(alerts, &(&1.alert_id == "alert-9"))
     assert Enum.any?(cases, &(&1.case_id == "case-9"))
     assert Enum.any?(approvals, &(&1.action_request_id == "act-9"))
     assert Enum.any?(timeline, &(&1.case_id == "case-9"))

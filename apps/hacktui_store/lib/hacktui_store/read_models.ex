@@ -2,9 +2,12 @@ defmodule HacktuiStore.ReadModels do
   @moduledoc """
   Query builders for operator-facing read models.
 
-  Alerts may originate from either:
-  1. persisted Alert rows
-  2. AlertCreated audit events
+  Alert rows are read through `HacktuiHub.QueryService.alert_queue/1`, which is the single
+  public alert-queue read path. A second definition used to live here and unioned persisted
+  alerts with AlertCreated audit events; it selected `entry_type` and `payload`, which
+  `AuditEvent` does not declare and no migration creates, so it could never execute against
+  a database. It had no production caller. Removing the duplication is the fix; repairing
+  dead code would have preserved the drift risk.
 
   The alert queue therefore merges both sources.
   """
@@ -13,7 +16,6 @@ defmodule HacktuiStore.ReadModels do
 
   alias HacktuiStore.Schema.{
     ActionRequest,
-    Alert,
     AuditEvent,
     CaseRecord,
     CaseTimelineEntry
@@ -23,43 +25,6 @@ defmodule HacktuiStore.ReadModels do
   # ALERT QUEUE
   #
 
-  @spec alert_queue_query() :: Ecto.Query.t()
-  def alert_queue_query do
-    alert_rows =
-      from(alert in Alert,
-        select: %{
-          alert_id: alert.alert_id,
-          title: alert.title,
-          severity: alert.severity,
-          state: alert.state,
-          inserted_at: alert.inserted_at,
-          metadata: fragment("'{}'::jsonb")
-        }
-      )
-
-    event_rows =
-      from(event in AuditEvent,
-        where: fragment("? ILIKE '%alert%'", event.entry_type),
-        select: %{
-          alert_id: fragment("?->>'alert_id'", event.payload),
-          title: fragment("?->>'title'", event.payload),
-          severity: fragment("?->>'severity'", event.payload),
-          state: fragment("'open'"),
-          inserted_at: event.occurred_at,
-          metadata: event.payload
-        }
-      )
-
-    from(row in subquery(alert_rows |> union_all(^event_rows)),
-      order_by: [desc: row.inserted_at]
-    )
-  end
-
-  #
-  # CASE BOARD
-  #
-
-  @spec case_board_query() :: Ecto.Query.t()
   def case_board_query do
     from(case_record in CaseRecord,
       order_by: [desc: case_record.updated_at]

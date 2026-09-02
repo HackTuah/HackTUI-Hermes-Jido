@@ -89,46 +89,18 @@ ratchet() {
   fi
 }
 
-# ---------- HARD ----------
-mix compile --warnings-as-errors >"$LOGDIR/compile.log" 2>&1 \
-  && note "compile" "pass" || die "compile" "FAIL (--warnings-as-errors)"
-mix format --check-formatted >"$LOGDIR/fmt.log" 2>&1 \
-  && note "format" "pass" || die "format" "FAIL -- run: mix format"
-
-# Anchored. CLAUDE.md section 10's original pattern was unanchored and always matched
-# envelope.ex on the substring "env", so it could never pass.
-secrets=$(git ls-files | grep -Ei '(^|/)\.env$|\.(key|pem|pcap|pcapng|p12)$' || true)
-if [ -z "$secrets" ]; then note "secret scan" "pass"
-else die "secret scan" "FAIL -- tracked secret-like files:"; printf '%s\n' "$secrets" | sed 's/^/      /'; fi
-
-# ---------- RATCHET ----------
-count_test_failures() {
-  # ExUnit exits 0 (all passed) or 2 (tests failed). Anything else -- a CompileError in
-  # a later app's test/, a timeout, OOM, SIGINT -- means the run did not measure every
-  # app. A partial log summing to fewer failures would otherwise read as an improvement.
-  case "${TEST_STATUS:-1}" in 0|2) ;; *) return 1 ;; esac
-  local want got
-  want=$(ls -d apps/*/test 2>/dev/null | wc -l)
-  got=$(grep -cE '[0-9]+ tests?, [0-9]+ failures?' "$1")
-  [ "$got" -ge "$want" ] || return 1
-  grep -oE '[0-9]+ failures?' "$1" | grep -oE '^[0-9]+' | paste -sd+ | bc
-}
-count_credo() {
-  # A clean run prints "found no issues" and no category totals -- that is 0, not a
-  # measurement failure. Without this the gate becomes unsatisfiable the day it passes.
-  grep -qE '^[0-9]+ mods/funs, found no issues' "$1" && { printf 0; return 0; }
-  grep -qE '[0-9]+ (warning|refactoring opportunit|code readability issue|software design suggestion|consistency issue)' "$1" || return 1
-  grep -oE '[0-9]+ (warnings?|refactoring opportunit(y|ies)|code readability issues?|software design suggestions?|consistency issues?)' "$1" \
-    | grep -oE '^[0-9]+' | paste -sd+ | bc
-}
-count_dialyzer() {
-  grep -qE '^done \(passed successfully\)' "$1" && { printf 0; return 0; }
-  grep -oE 'Total errors: [0-9]+' "$1" | grep -oE '[0-9]+$' | head -1
-}
-mix test >"$LOGDIR/test.log" 2>&1; TEST_STATUS=$?
-ratchet "test (ratchet)" test_failures "$LOGDIR/test.log" count_test_failures
-mix credo --strict >"$LOGDIR/credo.log" 2>&1;        ratchet "credo (ratchet)"    credo_issues      "$LOGDIR/credo.log"    count_credo
-mix dialyzer --format raw >"$LOGDIR/dialyzer.log" 2>&1; ratchet "dialyzer (ratchet)" dialyzer_warnings "$LOGDIR/dialyzer.log" count_dialyzer
+# ---------- HARD + RATCHET ----------
+# Delegated to tools/gate.sh, which the CI workflow also calls.
+#
+# These used to be two copies of the same logic, and CI's copy ran under GitHub's default
+# `shell: bash -e`, where a non-zero `mix test` aborts the step before the comparison runs.
+# Thirteen CI runs reported failure without ever measuring one, while this hook passed the
+# identical logic because it uses `set -uo pipefail` and no -e. The workflow's comment said
+# the two must match; they matched in logic and diverged in shell invocation, which is the
+# kind of difference a comment cannot hold. One implementation removes the class.
+for gate in compile format secret-scan test credo dialyzer; do
+  LOGDIR="$LOGDIR" BASELINE="$BASELINE" ./tools/gate.sh "$gate" || { fail=1; KEEP_LOGS=1; }
+done
 
 # ---------- ADVISORY ----------
 if mix do deps.loadpaths + deps.audit >"$LOGDIR/audit.log" 2>&1; then

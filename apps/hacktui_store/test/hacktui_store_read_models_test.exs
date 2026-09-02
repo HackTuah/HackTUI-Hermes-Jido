@@ -2,12 +2,7 @@ defmodule HacktuiStore.ReadModelsTest do
   use ExUnit.Case, async: true
 
   alias HacktuiStore.ReadModels
-  alias HacktuiStore.Schema.{ActionRequest, Alert, AuditEvent, CaseRecord, CaseTimelineEntry}
-
-  test "builds alert queue query" do
-    query = ReadModels.alert_queue_query()
-    assert query.from.source == {"alerts", Alert}
-  end
+  alias HacktuiStore.Schema.{ActionRequest, AuditEvent, CaseRecord, CaseTimelineEntry}
 
   test "builds case board query" do
     query = ReadModels.case_board_query()
