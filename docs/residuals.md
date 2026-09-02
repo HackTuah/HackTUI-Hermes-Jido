@@ -66,8 +66,10 @@ disagreement between two measurements is a finding, not a rounding error.
 ## Known-failing tests: RESOLVED in slice 13
 
 Both failures recorded here are fixed. The suite is **248 tests, 0 failures** across three
-consecutive runs, and `.claude/gate-baseline.json` `test_failures` is **0**. Kept in this
-ledger because the reasoning is the point, not the outcome.
+consecutive runs. The `test_failures` baseline that recorded this is now **gone**: slice 16
+retired it and made the gate hard-blocking, so only 0 passes and there is no baseline left to
+raise. The retirement is declared in `.claude/gate-baseline.json` under `_retired`. Kept in
+this ledger because the reasoning is the point, not the outcome.
 
 ### `HacktuiSensorTest` - resolved
 
