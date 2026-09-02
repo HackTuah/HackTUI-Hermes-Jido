@@ -103,6 +103,25 @@ and it is why the guard below exists rather than the fix ending at deletion.
 public definition, in `query_service.ex`. Verified to fire: reintroducing a duplicate
 `alert_queue_query/0` fails two named tests.
 
+## The signoff gate accepts an empty diff
+
+`.githooks/pre-commit` computes the sha256 of the staged diff and looks for it in a
+`REVIEW.signoff`. When nothing is staged, that hash is
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`, the hash of the empty
+string -- and if that value appears in a signoff, the gate reports "matches staged diff."
+Observed while committing a change that touched only gitignored files.
+
+No bad commit can land this way, because git refuses an empty commit independently. But the
+gate's verdict is a pass for a probe that did not run, which is the same class of defect as
+the CI failure slice 13 exists to fix.
+
+**Not patched, deliberately.** Rejecting the empty hash is one line, and it would leave the
+structural problem in place: the author writes the hash by which they are attested. The fix
+is the planned attestation redesign -- commit-message trailers, a signature verified against
+a tracked `.review/allowed-signers`, and Sigstore/Rekor so the claim is "this attestation
+existed at time T and is append-only" rather than "two people reviewed it." Patching the
+grep first would make the gate look stronger without being stronger.
+
 ## Unverified by construction
 
 - **`raw_message` has no test coverage on the network collector path.** It is a field on
