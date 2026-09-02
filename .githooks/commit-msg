@@ -16,7 +16,11 @@ if [ -f "$(git rev-parse --git-dir)/MERGE_HEAD" ] \
 fi
 case "$subject" in fixup!\ *|squash!\ *) exit 0 ;; esac
 
-if ! printf '%s' "$subject" | grep -qE '^[0-9]{2}-[a-z0-9]+(-[a-z0-9]+)*: .+'; then
+# An optional single-letter suffix permits a sub-slice (13b): work that must land between
+# two numbered slices, typically a blocking defect found in a slice that already merged.
+# It carries its own PLAN, CRITERIA, FINDINGS and signoff rather than being folded into
+# unrelated work or forcing a renumber of everything after it.
+if ! printf '%s' "$subject" | grep -qE '^[0-9]{2}[a-z]?-[a-z0-9]+(-[a-z0-9]+)*: .+'; then
   cat >&2 <<MSG
 COMMIT REJECTED -- CLAUDE.md section 7
 
@@ -28,8 +32,37 @@ MSG
   exit 1
 fi
 
-slice=$(printf '%s' "$subject" | grep -oE '^[0-9]{2}-[a-z0-9-]+')
+slice=$(printf '%s' "$subject" | grep -oE '^[0-9]{2}[a-z]?-[a-z0-9-]+')
 if [ ! -d "internal/slices/$slice" ]; then
   echo "COMMIT REJECTED -- internal/slices/$slice/ does not exist (CLAUDE.md section 6)." >&2
   exit 1
+fi
+
+# ---------- attestation trailer ----------
+# Records the sha256 of THIS commit's reviewable diff in the commit message, where it is
+# immutable under the commit hash and travels in history. CI later re-derives the same
+# value from the pushed range and compares (tools/gate.sh attestation).
+#
+# What this buys: history becomes tamper-evident. A rebase, amend or force-push that
+# changes a diff without changing the trailer is caught by a gate that derives the fact
+# instead of reading a number someone typed -- which is exactly how the old signoff gate
+# came to report "matches staged diff" for an empty diff.
+#
+# What it does NOT buy, stated plainly so nobody reads more into it: this does not prove
+# WHO reviewed anything. The attested party still produces the record. Making the attester
+# a different privilege domain needs a signature verified against a tracked
+# allowed-signers file, which is deliberately out of scope for this slice.
+if ! grep -qE '^Reviewed-diff:[[:space:]]*sha256:[0-9a-f]{64}' "$1"; then
+  staged=$(git -c diff.noprefix=false -c diff.context=3 -c diff.algorithm=myers \
+    -c core.abbrev=40 diff --cached --binary --no-ext-diff --no-textconv \
+    -- . ':(exclude)internal/**' | sha256sum | cut -d' ' -f1)
+
+  if [ "$staged" = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ]; then
+    echo "COMMIT REJECTED -- nothing to attest: this commit has an empty reviewable diff." >&2
+    echo "  A commit that changes only gitignored files cannot carry a meaningful" >&2
+    echo "  attestation, and an empty-diff hash must never read as a match." >&2
+    exit 1
+  fi
+
+  printf '\nReviewed-diff: sha256:%s\n' "$staged" >> "$1"
 fi

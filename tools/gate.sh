@@ -149,7 +149,77 @@ baseline_gate() {
   return 0
 }
 
-case "${1:?usage: tools/gate.sh <format|compile|secret-scan|test|credo|dialyzer|mutation|baseline|advisories>}" in
+
+# ---------------------------------------------------------------------------
+# attestation: the gate DERIVES the diff hash and compares it to the commit's claim.
+#
+# The old signoff gate read a number the author wrote into a file and checked that the
+# same number was there. With nothing staged that number is the sha256 of the empty
+# string, and the gate reported "matches staged diff" for a diff that did not exist.
+#
+# The structural problem is not the empty hash: it is that the attested party supplied the
+# value the gate checked. Same shape as joint invariant J8 -- the party accountable for
+# observing a plane must be a different privilege domain from the party accountable for its
+# behaviour -- applied to this repo's own review record. So the author now supplies a
+# CLAIM, in a commit trailer, and the gate independently derives the FACT and compares.
+#
+# Checked per commit, not per range: a push carries several commits and each must attest to
+# its own diff, for the same reason the baseline gate compares github.event.before rather
+# than HEAD~1.
+#
+# NOT in scope here: proving WHO produced the claim. That needs a signature verified
+# against a tracked allowed-signers file. This slice removes the author's ability to hand
+# the gate its own answer; it does not yet make the attester a different party.
+# ---------------------------------------------------------------------------
+derive_diff_hash() {
+  git -c diff.noprefix=false -c diff.context=3 -c diff.algorithm=myers -c core.abbrev=40 \
+    diff "$1" "$2" --binary --no-ext-diff --no-textconv -- . ':(exclude)internal/**' \
+    | sha256sum | cut -d' ' -f1
+}
+
+attestation_gate() {
+  local range="${1:-}" commits c parent derived claimed n=0 bad=0
+
+  [ -n "$range" ] || { note attestation "FAIL -- no commit range given"; return 1; }
+
+  commits=$(git rev-list --no-merges "$range" 2>/dev/null) || {
+    note attestation "FAIL -- cannot enumerate $range"; return 1; }
+
+  [ -n "$commits" ] && [ "$commits" != "" ] || {
+    note attestation "no commits in $range; nothing to check"; return 0; }
+
+  for c in $commits; do
+    n=$((n + 1))
+    parent=$(git rev-parse "$c^" 2>/dev/null) || parent=$(git hash-object -t tree /dev/null)
+    derived=$(derive_diff_hash "$parent" "$c")
+
+    # An empty diff can never be a match. This is the defect this slice closes: the sha256
+    # of the empty string is a real hash, and a signoff containing it used to pass.
+    if [ "$derived" = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ]; then
+      note attestation "NOTHING TO ATTEST -- ${c:0:8} has an empty reviewable diff"
+      bad=1
+      continue
+    fi
+
+    claimed=$(git log -1 --format=%B "$c" | sed -n 's/^Reviewed-diff:[[:space:]]*sha256:[[:space:]]*\([0-9a-f]\{64\}\).*/\1/p' | head -1)
+
+    if [ -z "$claimed" ]; then
+      note attestation "FAIL -- ${c:0:8} carries no Reviewed-diff trailer"
+      bad=1
+    elif [ "$claimed" != "$derived" ]; then
+      note attestation "FAIL -- ${c:0:8} claim does not match its diff"
+      printf '      claimed:  %s\n      derived:  %s\n' "$claimed" "$derived"
+      bad=1
+    else
+      note attestation "${c:0:8} attests to its own diff (${derived:0:16}...)"
+    fi
+  done
+
+  [ "$bad" -eq 0 ] || return 1
+  return 0
+}
+
+case "${1:?usage: tools/gate.sh <format|compile|secret-scan|test|credo|dialyzer|mutation|baseline|attestation|advisories>}" in
 
   format)
     mix format --check-formatted >/dev/null 2>&1 \
@@ -186,6 +256,10 @@ case "${1:?usage: tools/gate.sh <format|compile|secret-scan|test|credo|dialyzer|
 
   baseline)
     baseline_gate "${2:-}"
+    ;;
+
+  attestation)
+    attestation_gate "${2:-}"
     ;;
 
   mutation)

@@ -103,24 +103,25 @@ and it is why the guard below exists rather than the fix ending at deletion.
 public definition, in `query_service.ex`. Verified to fire: reintroducing a duplicate
 `alert_queue_query/0` fails two named tests.
 
-## The signoff gate accepts an empty diff
+## Not residuals: tracked blocking defects
 
-`.githooks/pre-commit` computes the sha256 of the staged diff and looks for it in a
-`REVIEW.signoff`. When nothing is staged, that hash is
-`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`, the hash of the empty
-string -- and if that value appears in a signoff, the gate reports "matches staged diff."
-Observed while committing a change that touched only gitignored files.
+A blocking-class finding cannot be recorded here. This section names them and points to the
+slice that closes each, so the ledger cannot become a place where blocking items go quiet.
 
-No bad commit can land this way, because git refuses an empty commit independently. But the
-gate's verdict is a pass for a probe that did not run, which is the same class of defect as
-the CI failure slice 13 exists to fix.
+### The signoff gate accepts an empty diff — BLOCKING (class 1), slice 13b
 
-**Not patched, deliberately.** Rejecting the empty hash is one line, and it would leave the
-structural problem in place: the author writes the hash by which they are attested. The fix
-is the planned attestation redesign -- commit-message trailers, a signature verified against
-a tracked `.review/allowed-signers`, and Sigstore/Rekor so the claim is "this attestation
-existed at time T and is append-only" rather than "two people reviewed it." Patching the
-grep first would make the gate look stronger without being stronger.
+`.githooks/pre-commit` hashes the staged diff and looks for that hash in a
+`REVIEW.signoff`. With nothing staged the hash is
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`, the sha256 of the empty
+string, and a signoff containing it is reported as "matches staged diff." Observed while
+committing a change that touched only gitignored files.
+
+Blocking class 1: a gate reporting a verdict without a probe. It was first recorded here as
+a residual, which was wrong — the protocol does not permit that, and filing it here would
+have let a blocking defect go quiet in a document whose purpose is the opposite.
+
+Closed by **slice 13b**, before the SPDX commit, because a 130-file mechanical diff is
+exactly the change whose attestation has to be honest.
 
 ## Unverified by construction
 

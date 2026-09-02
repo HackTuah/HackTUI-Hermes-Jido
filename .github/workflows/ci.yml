@@ -119,6 +119,27 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  attestation:
+    name: Gate - attestation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Re-derive each commit's diff and compare to its recorded claim
+        run: |
+          set +e
+          if [ -n "${{ github.base_ref }}" ]; then
+            git fetch --depth=0 origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" \
+              || { echo "::error::cannot fetch base ref"; exit 1; }
+            ./tools/gate.sh attestation "origin/${{ github.base_ref }}..${{ github.sha }}"
+          elif [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ] || [ -z "${{ github.event.before }}" ]; then
+            ./tools/gate.sh attestation "${{ github.sha }}~1..${{ github.sha }}"
+          else
+            ./tools/gate.sh attestation "${{ github.event.before }}..${{ github.sha }}"
+          fi
+
   mutation:
     name: Gate - mutation harness
     runs-on: ubuntu-latest
