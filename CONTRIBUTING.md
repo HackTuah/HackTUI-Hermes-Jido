@@ -42,3 +42,10 @@ Documentation index: [`docs/README.md`](docs/README.md).
 This project is licensed under the Apache License, Version 2.0. By submitting a
 contribution you agree that it is licensed under those same terms, per Section 5
 of the license. Do not submit code you are not authorized to license this way.
+
+## Branch protection
+
+`main` is protected by an active ruleset with no bypass actors, so the rules apply to
+administrators too. Force-pushes and branch deletion are blocked, changes land through a
+pull request, and all nine `Gate -` jobs must pass with the branch up to date before a
+merge is possible. A red commit cannot reach `main`.
