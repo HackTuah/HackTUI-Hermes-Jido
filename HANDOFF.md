@@ -4,33 +4,53 @@ State for a session starting with no memory of the previous one. Everything here
 re-verified by command at write time; where a number came from a command, the command is
 named so you can re-run it rather than trust it.
 
-**Written:** 2026-09-02, after slice 13b. **Governing rules:** `CLAUDE.md` (gitignored, at
-repo root). **Slice records:** `internal/slices/NN-*/` (gitignored, local only).
-**Published residuals:** `docs/residuals.md`.
+**Written:** 2026-09-02, after slice 13b. **Truth-synced:** 2026-09-02, slice 16 commit C1 —
+§1, §2 and §7.1 were stale or wrong; see the correction notes in each.
+**Governing rules:** `CLAUDE.md` (gitignored, at repo root). **Slice records:**
+`internal/slices/NN-*/` (gitignored, local only). **Open work that must travel:**
+`BACKLOG.md` (tracked, repo root). **Published residuals:** `docs/residuals.md`.
 
 ---
 
 ## 1. Where things stand
 
-`main` is at `bbc4372`. The suite is **248 tests, 0 failures** — green for the first time.
+`main` is at **`5a6e566`** (slice 15, the commit that added this file). The suite is
+**248 tests, 0 failures** — green for the first time. Re-derived at slice 16 rather than
+carried forward: `mix test` summed across the umbrella apps gives 248/0, and it reconciles
+with CI's advisory integration job (266 tests when `--include integration` adds the 18
+integration-tagged ones; 266 − 18 = 248).
 
 | Gate | Baseline | State |
 |---|---|---|
 | compile `--warnings-as-errors` | — | pass, hard-blocking |
 | format `--check-formatted` | — | pass, hard-blocking |
 | tracked secret-shaped files | — | pass, hard-blocking |
-| test | **0** | pass |
+| test | **0** | pass — still a **ratchet**, not hard-blocking; retirement is slice 16's next commit |
 | credo `--strict` | **76** | held |
 | dialyzer | **43** | held |
-| deps.audit / hex.audit | 12 / 20 | advisory, not blocking (slice 16's work) |
+| deps.audit / hex.audit | 12 / 20 | advisory, not blocking (**slice 18**'s work) |
 | mutation (`tools/mutate.sh`) | 0 survivors | 14/14 killed, CANARY aborts |
-| attestation | — | **RED on `main` — see §2** |
+| attestation | — | **GREEN on `main`** — run 33594696902; see §2 |
 
-Slices 01 through 13b are merged. Slice 14 has a PLAN and CRITERIA and **no code**.
+Slices 01 through 13b, and 15, are merged. **14 is not** — it has a PLAN and CRITERIA and
+**no code**, and it is blocked (§5); no commit in history references it
+(`git log --oneline | grep '^[0-9a-f]* 14-'` → empty). Slice 16 is the release (§6), 17 is
+presentation (§7), 18 is the audit advisories.
 
-## 2. The one red gate, and why it is not a bug
+A ratchet at 0 is **not** the same as a hard gate: `baseline_gate()` permits a raise when a
+matching `_corrections` entry ships in the same diff (`tools/gate.sh:122-140`), so failing
+tests can still land today by raising the baseline with a recorded reason. Slice 16 closes
+that for `test` by deleting the entry.
 
-`Gate - attestation` fails on `bbc4372` (run **33592712829**).
+## 2. The red gate that healed itself, and why it was never a bug
+
+**Outcome, recorded 2026-09-02:** this resolved exactly as predicted below. The next
+rebase-merged commit, `5a6e566`, had range `bbc4372..5a6e566`, which **excludes** `bbc4372`,
+and `main` went green on run **33594696902** with no allowlist, no revert and no history
+rewrite. What follows is the original analysis, kept because the reasoning is the reusable
+part; the forecast in it is now a measured outcome.
+
+`Gate - attestation` failed on `bbc4372` (run **33592712829**).
 
 `tools/gate.sh attestation` re-derives each commit's diff hash and compares it to the
 `Reviewed-diff` trailer in that commit's message. `bbc4372` was created by **squash**-merging
@@ -89,8 +109,9 @@ never the working one, and **the PLAN names where the probe runs before it runs.
 
 ## 4. Order of work
 
-**Release, then licensing (14) when unblocked, then presentation.** Nothing else starts
-until the tag exists.
+**Release (16), then licensing (14) when unblocked, then presentation (17).** Nothing else
+starts until the tag exists. The audit advisories are **slice 18**. Numbering settled at
+slice 16 planning time: 15 is spent on this file, so the release is 16, not 15.
 
 Slice 14 is **blocked** on two inputs only the owner can supply: the exact registered entity
 name, character for character, and the copyright assignment date.
@@ -119,7 +140,7 @@ module. Three independent proofs replace it:
 3. **Count assertion** — every in-scope file gained exactly one header and none gained two,
    so re-running the script cannot silently double up.
 
-## 6. The release slice — five confirmed blockers
+## 6. The release slice (16) — five blockers, four confirmed and one to re-measure
 
 `mix release` does not boot today. None of these is the manual `ensure_all_started` sequence
 the docs imply; every app already declares a proper `mod:`.
@@ -127,7 +148,12 @@ the docs imply; every app already declares a proper `mod:`.
 1. `config/runtime.exs` raises unconditionally in `:prod` — `HACKTUI_START_REPO` defaults
    false, so the guard errors before any application starts.
 2. With env set, `start_repo: true` makes `Repo` a permanent child; an unreachable DB halts
-   the release.
+   the release. **Not re-measured, and doubted.** `store/supervisor.ex:17-24`
+   (`maybe_repo_child/0`, which adds `HacktuiStore.Repo` at line 20) adds `Repo` as
+   an ordinary `:one_for_one` child and Postgrex normally starts and retries rather than
+   failing `start_link/1`, so the node may well survive. Slice 16 measures this in a
+   container before fixing it; if it survives, this blocker is recorded as corrected and
+   replaced by whatever the real fresh-machine failure turns out to be.
 3. The `hacktui_sensor` release contradicts its own comment: its `.app` lists `hacktui_hub`,
    which pulls `hacktui_store`, so the standalone sensor also demands DB credentials.
 4. No TUI entry point exists in a release — the only path to the dashboard is a Mix task,
@@ -135,22 +161,50 @@ the docs imply; every app already declares a proper `mod:`.
 5. `config/config.exs` reads `System.get_env` at **build** time, baking build-host DB values
    into `sys.config`.
 
-**Exit:** boots from a **clean clone** with no manual sequence; then a **signed, annotated**
-`v0.1.0` tag and a **GitHub Release** whose notes list what is qualified, link
-`docs/not_production_ready.md`, and state the SPDX/Apache boundary.
+**Exit, two tiers, both measured in a container with no cached `_build` and no cached
+`deps`:** **Tier 0** (no Postgres) boots from a clean clone with no manual sequence, passes
+the README health checks, and serves an MCP `initialize` over stdio. **Tier 1** (same
+container plus the README's one-line Postgres command) reaches alerts, cases and the full
+TUI. Then a **signed, annotated** `v0.1.0` tag, created from a fresh container run against
+the merged `main` commit, and a **GitHub Release** whose notes list what is qualified, link
+`docs/not_production_ready.md`, and state the licence. Slice 14 has not run, so the notes
+make no SPDX/REUSE claim. Exact commands and their output go in the signoff.
 
-## 7. Repo presentation — eight items
+## 7. Repo presentation (slice 17) — eight items
 
-1. **README "currently supports" must match the code.** *Corrected from the original brief:*
-   there are **three** collectors, not one — `Collectors.Network`
-   (`collectors/network.ex`), `Collectors.ProcessSignals` (`hacktui_sensor.ex:75`) and
-   `Collectors.Journald` (`hacktui_sensor.ex:170`). All three are wired and supervised, so
-   the test "name the module that does it or drop it" **passes for all three** and the
-   bullets are not false. The real defect: both non-network collectors are opt-in via
-   `HACKTUI_SENSOR_JOURNALD` / `HACKTUI_SENSOR_NETWORK`, and those variables are documented
-   **nowhere** — no `.md`, not `.env.example`. Someone following the docs can never enable
-   them. **Fix is documentation, not relocation**, plus a note that two collectors are
-   structurally hidden inside the parent module.
+1. **README "currently supports" must match the code.** *Corrected twice; the second
+   correction is the one to trust.* There are **three** collectors, not one —
+   `Collectors.Network` (`collectors/network.ex`), `Collectors.ProcessSignals`
+   (`hacktui_sensor.ex:75`) and `Collectors.Journald` (`hacktui_sensor.ex:170`). All three
+   are wired and supervised, so the test "name the module that does it or drop it"
+   **passes for all three** and the bullets are not false.
+
+   **The earlier version of this item paired the wrong collectors with the wrong variables.**
+   It said "both non-network collectors are opt-in via `HACKTUI_SENSOR_JOURNALD` /
+   `HACKTUI_SENSOR_NETWORK`" — which names a NETWORK variable while claiming to describe the
+   non-network collectors, and which credits `ProcessSignals` with a gate it does not have.
+   Read at `5a6e566`:
+
+   | Collector | Gate | Variable |
+   |---|---|---|
+   | `Collectors.Network` | `enabled?:` (`hacktui_sensor.ex:49`) | `HACKTUI_SENSOR_NETWORK`, default off |
+   | `Collectors.Journald` | `enabled?:` (`hacktui_sensor.ex:67-68`) | `HACKTUI_SENSOR_JOURNALD`, default off |
+   | `Collectors.ProcessSignals` | **none — started unconditionally** | **none existed**; `process_signal_opts/0` (`:54-60`) takes only `interval_ms` |
+
+   The real defect stands and is worse than "one collector": neither variable appears in any
+   **user-facing** documentation — nothing under `docs/`, not `README.md`, not `.env.example`.
+   Before this commit, `grep -rn HACKTUI_SENSOR` over the repo hit only `hacktui_sensor.ex`
+   and this file; it now also hits `BACKLOG.md`, which is process text, not a runbook. A
+   reader following the docs still cannot enable journald or network capture.
+
+   **Moved into slice 16**, because a release that boots from a clean clone has to be one
+   where a reader can enable what the README says is supported. Slice 16 adds
+   `HACKTUI_SENSOR_PROCESS_SIGNALS` (**default on**, so today's behaviour is unchanged for
+   anyone running now), documents all three in `docs/runtime_modes_matrix.md` and
+   `.env.example`, and adds a per-collector test asserting each variable starts exactly its
+   own collector and that a docs row exists for each — so code and docs cannot drift again
+   without `mix test` noticing. Also note that two collectors are structurally hidden inside
+   the parent module, which is why they read as absent.
 2. **Label detection as scaffolding.** `DetectionService` is a thin delegate; no rule layer,
    no rule format, no coverage table. `attack_mapping/1` (`purple_service.ex:28-29`) is two
    clauses — `T1071.004` for `"alert_observed"` and a `T1087` fallthrough. Add a status note
@@ -167,7 +221,7 @@ the docs imply; every app already declares a proper `mod:`.
 5. **Consolidate three demo runbooks into one** — keep `docs/case_1_demo_runbook.md` as the
    walkthrough; fold in `docs/demo_runbook.md` and `docs/demo_terminal_launcher.md`.
    `docs/README.md` already flags them as overlapping.
-6. **Release**: covered in §6.
+6. **Release**: covered in §6, and it is slice **16** — it runs before this list, not inside it.
 7. **Repo presentation**: About text — *"Terminal-native purple-team SOC on the BEAM. Agents
    propose; a human approves; every effect is auditable."* Topics: `elixir`, `erlang`,
    `beam`, `security-operations`, `soc`, `purple-team`, `mcp`, `ai-agents`, `jido`,
@@ -181,27 +235,71 @@ the docs imply; every app already declares a proper `mod:`.
 
 - GitHub **About** text and **topics** (§7.7).
 - **Social preview** image.
-- **Publishing** the GitHub Release. The tag can be pushed; publishing is an action under
-  the owner's account.
+- **Publishing** the GitHub Release. *Corrected:* the working session's credentials are
+  sufficient to create a release, so `gh release create` **would** succeed from the repo. It
+  is owner work by decision, not by capability. The agreed protocol: the notes are drafted in
+  the signoff, the owner reads
+  them, the owner replies with the single word `publish`, and only then is the staged
+  command run. Not on inference.
+- **Signing config and the GPG key.** `user.signingkey`, `tag.gpgsign`, `commit.gpgsign` and
+  `gpg.format` are all unset in this repo, so `git tag -s` would guess. The owner sets them
+  and publishes the public key to GitHub; the key's fingerprint is in the slice 16 PLAN
+  rather than here, because publishing it commits to an identity linkage that is the owner's
+  call to make. Uploading a key needs a token scope the working session deliberately does
+  **not** hold, and that is **not** widened for the release.
 - The **registered entity name and assignment date** for slice 14.
+- Raising `required_approving_review_count` above `0` and naming `required_reviewers`, if
+  §0 is ever to be enforced by the platform rather than by process.
 
 ## 9. Things that will bite you
 
 - **`internal/` is gitignored.** Slice PLANs, CRITERIA, FINDINGS and signoffs are local
   only and are not in the published repo. A commit touching only `internal/` stages nothing
-  and `commit-msg` will refuse it as "nothing to attest".
+  and `commit-msg` will refuse it as "nothing to attest". **This file was itself the lesson:
+  gitignored planning does not travel.** `BACKLOG.md` (tracked, repo root, added in slice 16)
+  is where open work that must survive a clone now lives. Three **tracked** files were already
+  citing it before it existed — `.githooks/commit-msg:11`, `.claude/gate-baseline.json:12`, and
+  `apps/hacktui_agent/lib/hacktui_agent/mcp/egress.ex:16` — and `CLAUDE.md` cites it in several
+  sections (that count is not independently checkable, since `CLAUDE.md` is gitignored and has
+  no history). The `egress.ex` one matters most: a dangling reference to a missing file is
+  merely untidy, but once the file exists the reference becomes **checkable**, so every citation
+  now needs a real item to land on.
 - **`internal/incoming/holytrinity.hold-v1.schema.json`** is parked, awaiting the contracts
   slice. It lives there because an untracked `schemas/` blocked the commit gate four times.
 - **Renaming a `Gate -` job silently breaks a required check** in the ruleset, and a
   required context that never reports blocks every PR forever. Any slice that renames one
   must put the before/after context names in its PLAN so the ruleset edit is a copy-paste.
-- **The integration job is advisory and fails.** 3 failures, not 7 — slice 13's sensor fix
-  cleared four. All three are residual-class, and the root cause is the job, not the tests:
-  none of the three is tagged `:integration`, so `mix test --include integration` runs the
-  whole suite under `HACKTUI_START_REPO=true` and repo-disabled tests fail by construction.
-  Three decisions are pre-made: tag what is genuinely `:integration`; run safe-mode tests in
-  their own env; and for `Forwarder`, prefer **not** starting it under the application in the
-  test env, so tests start it under their own supervision.
+- **The integration job is advisory and fails.** *Corrected in slice 16; the earlier "3
+  failures, none of them tagged `:integration`" was wrong on both counts.* Measured on run
+  **33594696902** (the push run for `5a6e566`): **four** failures — `HacktuiStoreTest` (1),
+  `HacktuiHub.SafeModeSmokeTest` and `HacktuiHub.ReplayIngestTest` (2), and
+  `HacktuiAgent.InvestigationFlowDbIntegrationTest` (1). **Do not carry a fixed count
+  forward**: it varies run to run, so re-derive it from the job log rather than quoting this
+  line.
+
+  **There is no single root cause, and every attempt to state one has been wrong.** The
+  explanation to stop repeating: "the job sets `HACKTUI_START_REPO=true`, so repo-disabled
+  tests fail" is **false** — `config/runtime.exs:15` is `if config_env() != :test do`, so that
+  variable is never read in the test environment. The workflow sets it; it does nothing.
+
+  What `--include integration` really does is **add** to the selection rather than narrow it,
+  so integration tests share a BEAM with everything else and mutate global state the untagged
+  tests depend on. **That is the enabling condition, and it is as far as the established
+  explanation goes.** These are order-dependent failures, and every attempt so far to state a
+  per-test causal chain has been wrong in some detail — the last one asserted that nothing
+  restarts `:hacktui_hub` when several untagged modules do. Counts are what keep going stale
+  here; derive them, do not quote them.
+
+  So: `HacktuiStoreTest` finds a live repo because `:start_repo` is already true and
+  integration setup does not restore it; `SafeModeSmokeTest` fails
+  `assert hub.supervisor_started?`, which is a supervisor check and not a repo assertion, and
+  is unusual in asserting hub state without starting the application first;
+  `ReplayIngestTest` fails on `audit_id: "has already been taken"` against a non-idempotent
+  fixture; and `InvestigationFlowDbIntegrationTest` is tagged (`@moduletag :integration`,
+  line 6) and fails a timeline-entry match, so the tagging work cannot clear it.
+
+  **Re-derive before acting.** Full breakdown, with what is and is not established, in
+  `BACKLOG.md` §2.
 - **Reviewers get `CRITERIA.md` before they are spawned**, and must classify every finding
   as blocking or residual. A round finding only residual items is PASS-with-residuals.
   Three-round cap unless a blocking class is hit. An unclassified finding is not actionable.
