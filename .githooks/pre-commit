@@ -29,6 +29,37 @@ is_uint() { case "${1:-}" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
 
 echo "== CLAUDE.md section 4 commit gates =="
 
+# ---------- BRANCH ----------
+# Work is sliced (section 2) and lands on main by rebase-merged PR (section 4). A commit
+# authored directly on main is a slip, and one already happened: it landed because no hook
+# refused it, after a reviewer flagged the branch discrepancy and it was read past. A rule
+# enforced by attention failed where the same rule as a gate has held every time.
+#
+# POSITIVE MATCH ONLY. A detached HEAD is allowed, deliberately: `git rebase` replays commits
+# detached, `git bisect` runs detached, and the reviewer's index checkout is a detached
+# worktree. Refusing on "cannot determine the branch" would block the rebase this repository
+# merges with. The gate refuses when it can see the name `main`, and is silent otherwise --
+# which is the one place in this file where an unmeasurable condition is not a failure, and it
+# is named rather than left as a fallthrough.
+#
+# This is a slip-guard, NOT an authorization control. `--no-verify` bypasses it like any hook,
+# and a clone that never ran `mix setup` has no local hook at all. The remote is what actually
+# prevents it: ruleset 22066749 requires a pull request, blocks non-fast-forward, and has no
+# bypass actors.
+# --short is DEFEATED BY REF AMBIGUITY: shorten_unambiguous_ref returns "heads/main" once a
+# tag or a refs/main also exists, and "heads/main" != "main". Measured by reviewer 1 -- two
+# commands and the refusal is gone. The full ref is unambiguous by construction.
+branch_ref=$(git symbolic-ref --quiet HEAD || true)
+branch=${branch_ref#refs/heads/}
+if [ "$branch_ref" = "refs/heads/main" ]; then
+  echo
+  echo "COMMIT REJECTED -- CLAUDE.md sections 2 and 7: this commit is on 'main'."
+  echo "  Work is sliced. Branch first:  git switch -c slice/NN-kebab-name"
+  echo "  main is reached by rebase-merged PR, never by a local commit."
+  exit 1
+fi
+note "branch" "${branch:-detached HEAD (allowed: rebase/bisect/review checkout)}"
+
 # ---------- index isolation ----------
 # Gates measure the WORKING TREE. If it differs from the index the numbers do not
 # describe the commit. Section 4 forbids `git stash`, so we refuse rather than guess.
@@ -41,6 +72,168 @@ ignored_src=$(git status --porcelain --ignored=matching -- 'apps/*/lib' 'apps/*/
 if [ -n "$dirty" ]; then
   die "working tree" "FAIL -- unstaged or untracked changes; gates would not measure the staged diff"
   printf '%s\n' "$dirty" | sed 's/^/      /'
+fi
+
+# ---------- DELETED AND RENAMED PATHS ----------
+# Every commit that moves or deletes a tracked path greps every tracked document for the old
+# path before staging.
+#
+# WHAT THIS CATCHES, stated exactly, because the first version of this comment claimed more:
+# a path that is TRACKED, that this commit DELETES OR RENAMES, and that a TRACKED .md cites by
+# EXACT STRING, in the INDEX. Everything outside that is not covered, and the boundary is not
+# incidental -- see below.
+#
+# THE THREE INSTANCES THAT MOTIVATED THIS GATE WOULD NOT HAVE BEEN CAUGHT BY IT. Reviewer 2
+# measured all three and the earlier claim here ("it would have caught all three") was false of
+# every one:
+#   - docs/residuals.md's "test_failures is 0" (C2) is a retired baseline JSON KEY, not a path;
+#   - HANDOFF.md's stale tools/gate.sh citation (C2b) is a stale LINE NUMBER into a file that
+#     was never deleted;
+#   - the contracts commit's internal/incoming/ citations are the sharpest case: internal/ has
+#     never been tracked, so removing a file there produces NO --diff-filter=DR entry at all,
+#     and the surviving citation in BACKLOG.md names the parent DIRECTORY, which an exact-string
+#     match does not match. Run against that commit the gate correctly prints "none deleted or
+#     renamed in this commit" -- it is silent because there is nothing in its domain.
+#
+# The gate is kept anyway, on a narrower and honest claim: the tracked-path-rename case is real
+# and a mechanical check beats attention for it. But it is NOT the general "a commit made a
+# tracked document false" detector the first comment implied, and nothing here should be read as
+# covering the three defects that produced the rule.
+#
+# An example that is true of THIS tree, not of a future one. The line below is machine-readable
+# and gated: apps/hacktui_core/test/deleted_path_example_test.exs asserts the path is tracked
+# and that a tracked .md cites it. The previous example named assets/images/UI.png "cited by
+# HANDOFF.md" -- true only after the contracts commit lands, and `git grep` for it in the tree
+# this ships in returns rc=1. A justification's example is a claim, so it gets the same gate as
+# any other claim.
+# EXAMPLE-PATH: docs/not_production_ready.md
+#
+# Further limits, all measured: an exact-string match flags a DOCUMENT CITING A LONGER PATH that
+# merely starts with the deleted one (victim.md flags a citation of victim.md.bak) -- a false
+# positive that fails closed; untracked .md are never scanned; and a path containing a newline
+# is refused rather than searched.
+#
+# A hit passes only if the literal marker below is on the hit line or the line IMMEDIATELY
+# above it. Two lines above does not count: one marker at the top of a file must not whitewash
+# every citation beneath it.
+HISTORICAL_MARKER='<!-- historical-path -->'
+NL=$'\n'
+
+# EVERYTHING here is NUL-delimited, and that is not fastidiousness. The first version parsed
+# `git diff --name-status` line by line and fed the field to `git grep -F`. `core.quotePath`
+# defaults to true, so git C-quotes any path holding a non-ASCII byte, a tab, a quote or a
+# newline -- and the quoted literal ("caf\303\251.md") cannot match the real bytes in the
+# document. The gate then printed "not cited in any tracked .md" AND its affirmative summary
+# line for a path it had never really searched for. A fail-OPEN, printed as a verdict, in the
+# gate this slice exists to make fail-closed. Measured by reviewer 1: three of four hostile
+# path shapes read as clean while their citations sat in the index verbatim.
+#
+# `-z` removes the quoting entirely, and `git ls-files -z` + `git show :path` removes the
+# second parse -- we no longer read `git grep`'s "path:line:text" output at all, so a path
+# containing a colon or a newline, or a file git calls binary, cannot confuse the reader. Line
+# numbers are counted here, from the blob, which is also the only way to be sure the number
+# indexes the same bytes the window is read from.
+# THE ENUMERATION'S EXIT STATUS IS CHECKED, not discarded. `done < <(git ...)` throws git's
+# status away: one unreadable object -- a partial clone, a failed fetch, a gc race, disk
+# corruption -- makes git exit 128 with EMPTY output, so `gone` is empty and this gate prints
+# "none deleted or renamed in this commit" over a staged deletion cited verbatim in a tracked
+# .md. Measured at rc=128. Same class as the C-quoting and binary fail-opens before it: an
+# affirmative verdict over an input that was never enumerated. A temp file is used instead of
+# a process substitution precisely so the status survives to be tested.
+: > "$LOGDIR/gone.z"
+git diff --cached --name-status --find-renames --diff-filter=DR -z > "$LOGDIR/gone.z"; enum_rc=$?
+path_enum_failed=0
+if [ "$enum_rc" -ne 0 ]; then
+  die "deleted paths" "FAIL -- could not enumerate deleted/renamed paths (git exited $enum_rc); refusing to pass unmeasured"
+  path_enum_failed=1
+fi
+
+gone=()
+while IFS= read -r -d '' _status; do
+  IFS= read -r -d '' _oldpath || break
+  case "$_status" in
+    R*|C*) IFS= read -r -d '' _newpath || break ;;
+  esac
+  gone+=("$_oldpath")
+done < "$LOGDIR/gone.z"
+
+if [ "$path_enum_failed" -eq 1 ]; then
+  :   # already reported; no affirmative may follow an unmeasured enumeration
+elif [ "${#gone[@]}" -eq 0 ]; then
+  note "deleted paths" "none deleted or renamed in this commit"
+else
+  path_fail=0
+  for old in "${gone[@]}"; do
+    [ -n "$old" ] || continue
+    # A newline inside the path makes `grep -F` read it as an ALTERNATION of substrings, and a
+    # path ending in a newline yields an empty alternative that matches every line of every
+    # .md. Neither answer is a search for that path, so it is refused rather than approximated.
+    case "$old" in
+      *"$NL"*)
+        die "deleted paths" "FAIL -- '$old' contains a newline; refusing to search for it -- resolve this citation by hand"
+        path_fail=1; continue ;;
+    esac
+    cited=0
+    read_failed=0
+    # The inner enumeration gets the same treatment. Reviewer 1 could not reach this one with
+    # stock git -- only with a PATH shim -- but "I could not construct it" is not "it cannot
+    # happen", and an unchecked status here would falsify the sentence below that says the
+    # affirmative is printed only when every .md was actually read.
+    : > "$LOGDIR/mdfiles.z"
+    git ls-files -z -- ':(icase)*.md' > "$LOGDIR/mdfiles.z"; ls_rc=$?
+    if [ "$ls_rc" -ne 0 ]; then
+      die "deleted paths" "FAIL -- could not enumerate tracked .md files (git exited $ls_rc); refusing to pass unmeasured"
+      path_fail=1; read_failed=1
+    fi
+    while IFS= read -r -d '' mdfile; do
+      # $(...) on file bytes: safe HERE and unsafe in tools/gate.sh, for a reason worth stating
+      # rather than leaving as an inconsistency. Command substitution strips trailing newlines;
+      # that changes a HASH but not whether a substring occurs, and the line numbers below are
+      # counted from the same stripped bytes the window is read from, so the number and the
+      # window cannot disagree. gate.sh hashes, so it may not do this.
+      blob=$(git show ":$mdfile" 2>/dev/null) || {
+        die "deleted paths" "FAIL -- cannot read $mdfile from the index; refusing to pass unmeasured"
+        path_fail=1; read_failed=1; continue; }
+      # grep -n over the blob: exit 0 = matched, 1 = no match, >1 = error. Only 1 is "clean".
+      # -a is LOAD-BEARING. GNU grep calls input binary on an encoding error, then exits 0,
+      # writes "binary file matches" to STDERR and emits NOTHING on stdout -- so `matches` came
+      # back empty, the loop below never ran, and the gate printed "not cited in any tracked
+      # .md" plus its affirmative summary for a citation sitting in the blob byte-for-byte.
+      # The same fail-open as the C-quoting defect, reached through blob CONTENT instead of
+      # path encoding, and measured on a .md holding one invalid UTF-8 byte.
+      matches=$(printf '%s\n' "$blob" | grep -anF -- "$old"); rc=$?
+      if [ "$rc" -gt 1 ]; then
+        die "deleted paths" "FAIL -- grep failed reading $mdfile (rc=$rc); refusing to pass unmeasured"
+        path_fail=1; read_failed=1; continue
+      fi
+      [ "$rc" -eq 0 ] || continue
+      while IFS= read -r m; do
+        hl=${m%%:*}
+        case "$hl" in ''|*[!0-9]*) continue ;; esac
+        cited=1
+        # The hit line and the one immediately above it. Two above must NOT count, or one
+        # marker at the top of a file would whitewash every citation beneath it.
+        prev=$((hl - 1)); [ "$prev" -lt 1 ] && prev=1
+        window=$(printf '%s\n' "$blob" | sed -n "${prev},${hl}p")
+        if printf '%s' "$window" | grep -qF -- "$HISTORICAL_MARKER"; then
+          note "deleted paths" "$mdfile:$hl cites $old -- marked historical, allowed"
+        else
+          die "deleted paths" "FAIL -- $mdfile:$hl cites '$old', which this commit deletes or renames"
+          echo "      mark the line (or the one directly above) with $HISTORICAL_MARKER, or fix the citation"
+          path_fail=1
+        fi
+      done <<EOF
+$matches
+EOF
+    done < "$LOGDIR/mdfiles.z"
+    # "not cited" is a MEASUREMENT and is only printed when every .md was actually read. If
+    # any read failed, the commit is already blocked, and an affirmative sentence next to it
+    # would be the same unmeasured claim in a quieter register.
+    if [ "$cited" -eq 0 ] && [ "$read_failed" -eq 0 ]; then
+      note "deleted paths" "$old -- not cited in any tracked .md"
+    fi
+  done
+  [ "$path_fail" -eq 0 ] && note "deleted paths" "every deleted or renamed path checked against tracked .md"
 fi
 
 # ---------- baseline ----------
@@ -98,11 +291,12 @@ note "sobelow" "advisory: $sb findings"
 #
 # internal/ is excluded from the hash: it is untracked, so it never appears in a staged
 # diff anyway, and excluding it keeps the hash stable if that ever changes.
-staged_hash=$(git -c diff.noprefix=false -c diff.context=3 -c diff.algorithm=myers \
-  -c core.abbrev=40 diff --cached --binary --no-ext-diff --no-textconv \
-  -- . ':(exclude)internal/**' | sha256sum | cut -d' ' -f1)
+# The recipe itself lives in tools/gate.sh and is read from there, not copied here. This
+# hook used to carry its own copy; two byte-identical copies pass a grep count, and the only
+# honest test is a mutation with exactly one thing to mutate.
+staged_hash=$(LOGDIR="$LOGDIR" ./tools/gate.sh staged-diff-hash) || staged_hash=""
 if ! printf '%s' "$staged_hash" | grep -qE '^[0-9a-f]{64}$'; then
-  die "review signoff" "FAIL -- could not compute staged-diff hash; refusing to pass unmeasured"
+  die "review signoff" "FAIL -- no staged-diff hash (unmeasurable, or the reviewable diff is empty); refusing to pass"
 else
   matched=""
   for f in internal/slices/*/REVIEW.signoff; do
@@ -110,8 +304,41 @@ else
     grep -qF -- "$staged_hash" "$f" && { matched="$f"; break; }
   done
 
-  if [ -n "$matched" ]; then note "review signoff" "matches staged diff ($matched)"
-  else die "review signoff" "FAIL -- no internal/slices/*/REVIEW.signoff contains $staged_hash"
+  if [ -z "$matched" ]; then
+    die "review signoff" "FAIL -- no internal/slices/*/REVIEW.signoff contains $staged_hash"
+  else
+    note "review signoff" "matches staged diff ($matched)"
+
+    # The signoff must also name the tree the reviewers read, and that tree must still be the
+    # index.
+    #
+    # MEASURED, and narrower than it first looks -- said plainly rather than overclaimed. In the
+    # ordinary case the hash lookup above ALREADY catches a moved index: change the index and the
+    # staged diff changes with it, so no signoff matches and the commit fails one branch earlier
+    # ("no REVIEW.signoff contains <hash>"). This check is not what closes that window.
+    #
+    # What it does catch, each measured:
+    #   1. a signoff with the right hash and NO Reviewed-tree line -- i.e. one not written by
+    #      tools/signoff.sh, which is what enforces the two-reviewer index-checkout protocol;
+    #   2. a signoff whose hash was copied in by hand while the tree line says something else;
+    #   3. any future case where the diff scope and the tree diverge -- the exclusion of
+    #      internal/** above is exactly such a scope, and would become one if internal/ were
+    #      ever tracked.
+    # It is defence in depth over a hash that is written by the party it certifies, not the
+    # primary guard. Signoffs written before this gate existed carry no Reviewed-tree line and
+    # fail closed here; they are historical records, and no commit is expected to match one.
+    reviewed_tree=$(sed -n 's/^Reviewed-tree:[[:space:]]*\([0-9a-f]\{40\}\).*/\1/p' "$matched" | head -1)
+    current_tree=$(git write-tree 2>/dev/null || true)
+    if [ -z "$reviewed_tree" ]; then
+      die "review signoff" "FAIL -- $matched carries no Reviewed-tree line; write it with tools/signoff.sh"
+    elif ! printf '%s' "$current_tree" | grep -qE '^[0-9a-f]{40}$'; then
+      die "review signoff" "FAIL -- git write-tree gave no tree hash; refusing to pass unmeasured"
+    elif [ "$reviewed_tree" != "$current_tree" ]; then
+      die "review signoff" "FAIL -- the index has moved since it was reviewed"
+      printf '      reviewed: %s\n      index is: %s\n' "$reviewed_tree" "$current_tree"
+    else
+      note "review tree" "index still equals the reviewed tree (${reviewed_tree:0:12}...)"
+    fi
   fi
 fi
 

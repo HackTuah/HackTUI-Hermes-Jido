@@ -255,3 +255,32 @@ control's limits: the funnel carries others that are **visible in the implementa
 described in the moduledoc**, so reading the moduledoc alone returns this item and gives a
 false sense of completeness. Anyone assessing what leaves the MCP boundary should read the
 bodies of `egress.ex` and `privacy_mask.ex`, not this entry and not the doc comments.
+
+## 11. `is_uint` is defined twice — advisory print only
+
+`.githooks/pre-commit` carries a **byte-identical copy** of the `is_uint` helper defined in
+`tools/gate.sh`. Found by a reviewer in slice 16b while checking that slice's own
+one-invariant-one-implementation criterion.
+
+**It governs an advisory print only.** `is_uint` has exactly one call site in the hook, inside
+the `ADVISORY` block, and neither branch of it sets `fail` — so the commit verdict is
+unreachable from the duplicated function. It decides whether a dependency-audit count is
+printable, nothing more. **No baseline or ratchet logic is duplicated** — that is the point of
+recording it here rather than filing it as a defect.
+
+*(An earlier draft of this sentence said the hook "delegates every gate verdict to
+`tools/gate.sh`". That was false of the tree and was falsified by the very commit that wrote
+it: the hook renders several verdicts of its own — the branch refusal, the deleted-path check
+and the `Reviewed-tree` check — and `CLAUDE.md` §4 lists all three as gates. The narrow claim
+above is the one that was measured.)*
+
+It is still the exact hazard the surrounding code names: **two byte-identical copies pass a
+grep count.** Today they agree; nothing makes them agree tomorrow. A count is not proof of one
+implementation — the only proof is a mutation, and a mutation needs one thing to mutate.
+
+**Assigned to slice 17**, which removes the copy and imports the single definition; the hook
+sourcing the function from `tools/gate.sh` is the obvious shape, and 17's PLAN decides it.
+
+Deliberately cited by **construct, not line number**: both files change under active work, and
+a line citation in a file under change is the stale-citation class this repository has already
+committed once inside the document recording the fix for it.

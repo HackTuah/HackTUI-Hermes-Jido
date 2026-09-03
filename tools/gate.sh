@@ -263,9 +263,14 @@ baseline_gate() {
   fi
 
   # RULE 1 -- immutable and append-only. Every entry present at the previous ref must still
-  # be present now. Equality is jq -S canonical over the ENTIRE entry object, every field,
-  # not a selected subset: a changed `reason` or `slice` is caught as readily as a changed
-  # `retired_at`, and key order or whitespace cannot disguise an edit.
+  # be present now. Equality is jq -S canonical NUMERIC equality over the ENTIRE entry object,
+  # every field, not a selected subset: a changed `reason` or `slice` is caught as readily as a
+  # changed `retired_at`, and key order or whitespace cannot disguise an edit.
+  #
+  # "numeric equality" is the precise word and the earlier "equality over every field" was
+  # marginally stronger than the mechanism: jq treats 76 and 76.0 as ONE number, so editing an
+  # existing entry's retired_at from 76 to 76.0 is accepted as unchanged (rc=0), while 76 -> 77
+  # is caught (rc=1). Semantically a no-op, and stated rather than left for a reader to discover.
   if ! jq -e -n --argjson p "$prev_ret" --argjson q "$now_ret" \
        '(($p - $q) | length) == 0' >/dev/null 2>&1; then
     note baseline "FAIL -- a _retired entry present at $ref was removed or altered; the record is append-only and immutable"
@@ -304,6 +309,12 @@ baseline_gate() {
     # A previous version ran `tostring` over any JSON value: 76.0 came through as "76.0",
     # failed is_uint, and was reported as "carries no numeric retired_at" -- which was false,
     # since it IS a number. 7.6e1 meanwhile became "76" and passed. Same value, two verdicts.
+    #
+    # Not eliminated at the extremes, and said plainly rather than implied: this fails closed on
+    # inputs no real count can produce; the message is wrong of the input. For 1e20 the reader
+    # emits "1e+20" rather than "NaN", so the gate says "not a whole number" of a value that IS
+    # a non-negative integer; -1 produces the same wording. Both are unreachable with real
+    # baseline counts, and both refuse rather than pass, which is the property that matters.
     if [ "$rat" = "-" ]; then
       note baseline "FAIL -- new _retired entry for $rk carries no retired_at"
       return 1
@@ -456,10 +467,60 @@ baseline_gate() {
 # against a tracked allowed-signers file. This slice removes the author's ability to hand
 # the gate its own answer; it does not yet make the attester a different party.
 # ---------------------------------------------------------------------------
+# ONE definition of the reviewable-diff recipe. Every consumer reads these two arrays:
+# attestation (derive_diff_hash), the pre-commit signoff check and tools/signoff.sh
+# (staged_diff_hash, via the `staged-diff-hash` subcommand). This is the class-(a) rule
+# applied to itself -- two byte-identical copies pass a grep count, so the only honest test
+# is a mutation, and a mutation needs exactly one thing to mutate.
+#
+# .githooks/commit-msg still carries its own copy: it runs in a context where sourcing this
+# script is a behaviour change, and removing that copy is slice 17's work. It does not sit
+# on faith in the meantime -- apps/hacktui_core/test/diff_recipe_test.exs asserts the two
+# token sequences are identical, so they cannot drift silently inside that window.
+DIFF_RECIPE=(-c diff.noprefix=false -c diff.context=3 -c diff.algorithm=myers -c core.abbrev=40)
+DIFF_SCOPE=(--binary --no-ext-diff --no-textconv -- . ':(exclude)internal/**')
+
 derive_diff_hash() {
-  git -c diff.noprefix=false -c diff.context=3 -c diff.algorithm=myers -c core.abbrev=40 \
-    diff "$1" "$2" --binary --no-ext-diff --no-textconv -- . ':(exclude)internal/**' \
-    | sha256sum | cut -d' ' -f1
+  git "${DIFF_RECIPE[@]}" diff "$1" "$2" "${DIFF_SCOPE[@]}" | sha256sum | cut -d' ' -f1
+}
+
+# The same recipe against the index. `git diff --cached` takes no ref pair, which is why it
+# cannot simply call derive_diff_hash -- but it reads the same two arrays, so a change to the
+# recipe moves both or neither.
+#
+# THREE things this has to get right, all of them found by review rather than by design:
+#
+#  1. It must FAIL when it cannot measure. The first version piped `git diff` straight into
+#     sha256sum, so when git errored -- outside a repository, say -- sha256sum hashed empty
+#     input and produced e3b0c442..., a perfectly well-formed 64-hex string, with rc=0. A
+#     caller that cannot measure must not receive something that looks like a measurement;
+#     that is the defect class this whole file was written to remove, committed inside the
+#     commit that removes it. PIPESTATUS carries git's status out of the pipeline.
+#  2. It must not depend on the caller's directory. DIFF_SCOPE ends in `-- .`, which is
+#     relative, so the same index answered differently from the root and from a subdirectory
+#     -- returning the empty-diff hash, with rc=0, while a change was staged. It resolves the
+#     toplevel itself rather than trusting the caller to have cd'd.
+#  3. It must not use $(...) on the diff BYTES. Command substitution strips trailing newlines,
+#     so the hash would silently differ from every other consumer's. Measured: pipeline
+#     9fed0f8d..., $(...) 0cad12fe..., and re-appending the one stripped newline restores
+#     9fed0f8d... exactly. Only the finished hex string passes through a substitution.
+#     (An earlier version of this comment also blamed NULs "that --binary hunks contain". That
+#     is wrong and was corrected by review: --binary hunks are base85 ASCII -- `tr -dc '\000'`
+#     over such a diff counts zero. Bash does drop NULs from a substitution, but the diff of a
+#     binary file is not where they come from. The trailing newline alone is the reason.)
+staged_diff_hash() {
+  local top h rc
+  top=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+  [ -n "$top" ] || return 1
+  h=$(
+    cd "$top" || exit 1
+    git "${DIFF_RECIPE[@]}" diff --cached "${DIFF_SCOPE[@]}" | sha256sum | cut -d' ' -f1
+    exit "${PIPESTATUS[0]}"
+  )
+  rc=$?
+  [ "$rc" -eq 0 ] || return 1
+  printf '%s' "$h" | grep -qE '^[0-9a-f]{64}$' || return 1
+  printf '%s' "$h"
 }
 
 attestation_gate() {
@@ -504,7 +565,7 @@ attestation_gate() {
   return 0
 }
 
-case "${1:?usage: tools/gate.sh <format|compile|secret-scan|test|credo|dialyzer|mutation|baseline|attestation|advisories>}" in
+case "${1:?usage: tools/gate.sh <format|compile|secret-scan|test|credo|dialyzer|mutation|baseline|attestation|advisories|staged-diff-hash>}" in
 
   format)
     mix format --check-formatted >/dev/null 2>&1 \
@@ -561,6 +622,24 @@ case "${1:?usage: tools/gate.sh <format|compile|secret-scan|test|credo|dialyzer|
     mix do deps.loadpaths + deps.audit 2>&1 | tail -3
     mix hex.audit 2>&1 | tail -3
     note advisories "recorded (not blocking until slice 18)"
+    ;;
+
+  # Not a gate: it prints the one canonical staged-diff hash so .githooks/pre-commit and
+  # tools/signoff.sh do not need a copy of the recipe. It emits a hash and nothing else, and
+  # exits non-zero in every case where it did not measure one.
+  #
+  # The empty-diff hash is refused here rather than left to each caller. It IS well formed, so
+  # a format check cannot catch it; .githooks/commit-msg and tools/signoff.sh each carry their
+  # own sentinel test and .githooks/pre-commit did not, which is exactly the asymmetry that
+  # makes a per-caller check the wrong place for it.
+  staged-diff-hash)
+    [ "$#" -eq 1 ] || {
+      echo "staged-diff-hash: takes no arguments (got: ${*:2})" >&2; exit 2; }
+    h=$(staged_diff_hash) || {
+      echo "staged-diff-hash: could not measure the index; refusing to print a hash" >&2; exit 2; }
+    [ "$h" = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ] && {
+      echo "staged-diff-hash: the staged reviewable diff is empty; nothing to hash" >&2; exit 2; }
+    printf '%s\n' "$h"
     ;;
 
   *) echo "unknown gate: $1" >&2; exit 2 ;;
