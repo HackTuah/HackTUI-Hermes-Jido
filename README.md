@@ -1,6 +1,6 @@
-# HackTUI
+# Ultraviolet
 
-HackTUI is a terminal-native purple team security operations platform built on **Elixir** and the **BEAM runtime**.
+Ultraviolet is a terminal-native purple team security operations platform built on **Elixir** and the **BEAM runtime**.
 
 It combines:
 
@@ -10,17 +10,17 @@ It combines:
 - bounded agent-assisted workflows using **Jido**
 - AI interoperability through **MCP (Model Context Protocol)**
 
-HackTUI is designed as a **research and experimentation platform** for autonomous and human-guided security operations.
+Ultraviolet is designed as a **research and experimentation platform** for autonomous and human-guided security operations.
 
 This repository includes:
 
-- the HackTUI platform
+- the Ultraviolet platform
 - the built-in MCP server
-- Jido-based bounded agent components inside HackTUI
+- Jido-based bounded agent components inside Ultraviolet
 
-This repository does **not** include my external Hermes agent. Hermes was used as a development partner and can connect to HackTUI through MCP, but the private agent itself is not part of this codebase.
+This repository does **not** include my external Hermes agent. Hermes was used as a development partner and can connect to Ultraviolet through MCP, but the private agent itself is not part of this codebase.
 
-## Why HackTUI Exists
+## Why Ultraviolet Exists
 
 Most security platforms today are built around:
 
@@ -29,7 +29,7 @@ Most security platforms today are built around:
 - conventional SIEM pipelines
 - analyst workflows designed for browsers first
 
-HackTUI explores a different direction:
+Ultraviolet explores a different direction:
 
 - terminal-first operations
 - actor-style concurrency on the BEAM
@@ -41,7 +41,7 @@ The goal is not to replace mature security platforms. The goal is to explore wha
 
 ## High-Level Architecture
 
-HackTUI is an **Elixir umbrella application**.
+Ultraviolet is an **Elixir umbrella application**.
 
 ```text
 apps/
@@ -124,15 +124,15 @@ Responsible for rendering:
 
 Bounded agent integration.
 
-Uses the **real Jido runtime** for advisory investigation workflows and includes the MCP server implementation that external agents can use to interact with HackTUI.
+Uses the **real Jido runtime** for advisory investigation workflows and includes the MCP server implementation that external agents can use to interact with Ultraviolet.
 
 ### `hacktui_collab`
 
 Experimental collaboration boundary for external integrations.
 
-## What HackTUI Does
+## What Ultraviolet Does
 
-HackTUI currently supports:
+Ultraviolet currently supports:
 
 - live host telemetry ingestion
 - network flow ingestion through `tshark` / `dumpcap`
@@ -145,13 +145,13 @@ HackTUI currently supports:
 - Jido-backed agent runtime integration
 - privacy masking for safer screenshots and demos
 
-In practice, this means HackTUI can collect observations, promote suspicious activity into alerts, open cases, expose system state through MCP, and allow a bounded agent to assist with investigation while keeping a human operator in control.
+In practice, this means Ultraviolet can collect observations, promote suspicious activity into alerts, open cases, expose system state through MCP, and allow a bounded agent to assist with investigation while keeping a human operator in control.
 
 ## Major Design Principles
 
 ### Terminal First
 
-HackTUI is built to work over SSH, in remote shells, and in environments where browser-first tooling is undesirable.
+Ultraviolet is built to work over SSH, in remote shells, and in environments where browser-first tooling is undesirable.
 
 ### Durable State
 
@@ -197,7 +197,7 @@ Useful optional tools:
 - Observer GUI support
 - `git`
 
-HackTUI is currently best supported on **Linux**.
+Ultraviolet is currently best supported on **Linux**.
 
 ---
 
@@ -206,8 +206,8 @@ HackTUI is currently best supported on **Linux**.
 ## 1. Clone the repository
 
 ```bash
-git clone https://github.com/HackTuah/HackTUI-Hermes-Jido.git
-cd HackTUI-Hermes-Jido
+git clone https://github.com/HackTuah/Ultraviolet.git
+cd Ultraviolet
 ```
 
 ## 2. Install Elixir dependencies
@@ -310,7 +310,7 @@ If your environment uses app-specific migration tasks, run the equivalent store 
 
 ---
 
-# Running HackTUI
+# Running Ultraviolet
 
 ## Start the full runtime in IEx
 
@@ -401,7 +401,7 @@ Observer is useful for inspecting:
 
 # Verifying Jido Integration
 
-HackTUI uses the **real Jido runtime**, not a local stub.
+Ultraviolet uses the **real Jido runtime**, not a local stub.
 
 Run the following in IEx:
 
@@ -434,7 +434,7 @@ Expected result: paths under `_build/dev/lib/jido/` and `_build/dev/lib/jido_act
 
 # Running the MCP Server
 
-HackTUI includes a built-in MCP server.
+Ultraviolet includes a built-in MCP server.
 
 ## Start in stdio mode
 
@@ -903,14 +903,14 @@ This repository does **not** include my private Hermes runtime or personal agent
 It **does** include:
 
 - the built-in MCP server
-- Jido integration inside HackTUI
+- Jido integration inside Ultraviolet
 - bounded agent components used by the system itself
 
 ---
 
 # Current Status
 
-HackTUI is a **research prototype** exploring:
+Ultraviolet is a **research prototype** exploring:
 
 - terminal-native SOC workflows
 - purple-team telemetry and replay
@@ -963,7 +963,7 @@ printf '%s\n' "$body" | ./bin/hacktui-mcp
 
 # License
 
-HackTUI is licensed under the **Apache License, Version 2.0**. See [`LICENSE`](LICENSE)
+Ultraviolet is licensed under the **Apache License, Version 2.0**. See [`LICENSE`](LICENSE)
 for the full terms and [`NOTICE`](NOTICE) for attribution requirements.
 
 Apache-2.0 was chosen over a simpler permissive license because it includes an
