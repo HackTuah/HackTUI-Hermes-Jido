@@ -8,7 +8,10 @@ defmodule HacktuiAgent.MCP.Egress do
   third-party model masked nothing.
 
   This is a funnel, not a per-call-site convention: every read tool's result goes through
-  `mask/1`. It walks maps and lists and masks the fields that carry host identity.
+  `mask/1`. A value under a field named in `@masked_fields` is walked through maps, lists and
+  structs, so identity nested below the key is masked and not only a binary sitting directly
+  under it. Charlists, binary map keys, tuples and keyword lists are not walked -- a charlist
+  is reassembled unchanged and a key is never inspected. See SCR-195 and SCR-194.
 
   It is not sufficient on its own. `PrivacyMask` still only recognises RFC1918 and
   loopback IPv4, so hostnames, DNS names, TLS SNI and URIs are masked here only by field
@@ -40,6 +43,17 @@ defmodule HacktuiAgent.MCP.Egress do
   defp masked?(key) when is_binary(key), do: key in @masked_fields
   defp masked?(_), do: false
 
+  # A masked key declares its whole subtree identity-bearing, so every binary leaf beneath
+  # it is masked regardless of the inner key's name. Routing back through mask/1 would mask
+  # only inner keys that are themselves in @masked_fields, leaving
+  # %{"src" => %{"addr" => "10.0.0.4"}} exposed. Before this recursed, a masked key was the
+  # LESS safe place to put host identity than an unmasked one.
   defp mask_value(value) when is_binary(value), do: PrivacyMask.mask(value)
+  defp mask_value(value) when is_list(value), do: Enum.map(value, &mask_value/1)
+  defp mask_value(%_{} = value), do: value |> Map.from_struct() |> mask_value()
+
+  defp mask_value(value) when is_map(value),
+    do: Map.new(value, fn {key, inner} -> {key, mask_value(inner)} end)
+
   defp mask_value(value), do: value
 end
