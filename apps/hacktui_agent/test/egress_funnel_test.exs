@@ -28,6 +28,14 @@ defmodule HacktuiAgent.MCP.EgressFunnelTest do
     def alert_queue, do: throw(:boom)
   end
 
+  defmodule NestedSvc do
+    @moduledoc false
+    # Identity one level below a MASKED key. @masked_fields declares "src" as carrying host
+    # identity; nesting must not exempt the structure beneath it.
+    def alert_queue, do: [%{"src" => %{"host" => "10.0.0.4"}}]
+    def sensor_logs(_repo), do: [%{"src" => ["10.0.0.4"]}]
+  end
+
   defp opts, do: [query_service: Svc, proposal_service: Svc, repo: :stub]
 
   test "draft_report is masked identically to get_case_timeline" do
@@ -57,5 +65,28 @@ defmodule HacktuiAgent.MCP.EgressFunnelTest do
              Dispatch.safe_call(:get_latest_alerts, %{}, query_service: Thrower)
 
     assert Process.alive?(self())
+  end
+
+  test "identity nested in a map under a masked key is masked" do
+    assert {:ok, result} =
+             Dispatch.safe_call(:get_latest_alerts, %{}, query_service: NestedSvc, repo: :stub)
+
+    refute inspect(result) =~ "10.0.0.4",
+           "a masked key must not exempt the map beneath it"
+
+    # Positive: the subtree must survive masked, not be deleted. A mask_value/1 that
+    # returned %{} would satisfy the refute above and destroy the record.
+    assert [%{"src" => %{"host" => "[LOCAL_HOST]"}}] = result
+  end
+
+  test "identity in a list under a masked key is masked" do
+    assert {:ok, result} =
+             Dispatch.safe_call(:get_sensor_logs, %{}, query_service: NestedSvc, repo: :stub)
+
+    refute inspect(result) =~ "10.0.0.4",
+           "a masked key must not exempt the list beneath it"
+
+    # Positive: a mask_value/1 returning [] would satisfy the refute and destroy the record.
+    assert [%{"src" => ["[LOCAL_HOST]"]}] = result
   end
 end
