@@ -206,7 +206,7 @@ Ultraviolet is currently best supported on **Linux**.
 ## 1. Clone the repository
 
 ```bash
-git clone https://github.com/HackTuah/Ultraviolet.git
+git clone https://github.com/ScriptKittyOS/Ultraviolet.git
 cd Ultraviolet
 ```
 
